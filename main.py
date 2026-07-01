@@ -7,6 +7,7 @@ import random
 import time
 import datetime
 import os
+import aiohttp  # Added for the weather command
 
 # ==========================================
 # 1. RENDER KEEP-ALIVE SYSTEM (FLASK SERVER)
@@ -65,7 +66,6 @@ LINUX_COMMANDS = [
     {"cmd": "pwd", "desc": "🐧 Prints the full path of the current working directory."},
     {"cmd": "sudo", "desc": "🐧 Runs a command with the elevated security privileges of the system administrator 'root'."},
     {"cmd": "htop", "desc": "🐧 A much sleeker, colorful, and highly interactive modern upgrade to the classic 'top' command!"}
-    # (Diğer komutlarını buraya ekleyebilirsin, çok uzun olmaması için kısalttım)
 ]
 
 SERVER_RULES = [
@@ -82,6 +82,32 @@ LINUX_GIFS = [
     "https://media.giphy.com/media/VbKLOdvYXBEgw/giphy.gif",
     "https://media.tenor.com/7D-R9eYf6W8AAAAC/linux-penguin.gif",
     "https://media.tenor.com/V-nF03F5h20AAAAC/linux-arch.gif"
+]
+
+# New Entertainment & Info Data
+TANK_FACTS = [
+    "The British Mark I was the first tank to enter combat during the Battle of the Flers-Courcelette in 1916.",
+    "Major General Ernest Swinton is highly credited with the conceptualization of the first armored tracked vehicles.",
+    "The German Tiger I featured an 88mm KwK 36 gun, initially designed as an anti-aircraft flak cannon.",
+    "Sloped armor, famously utilized on the Soviet T-34, increases the effective thickness of the armor against incoming shells."
+]
+
+MMA_FACTS = [
+    "Jon 'Bones' Jones became the youngest champion in UFC history at age 23.",
+    "The traditional Octagon was created to avoid the structural disadvantages of a square boxing ring, preventing fighters from getting stuck in corners.",
+    "Brazilian Jiu-Jitsu rose to global prominence after Royce Gracie won the first, second, and fourth UFC tournaments."
+]
+
+TECH_JOKES = [
+    "There are 10 types of people in the world: those who understand binary, and those who don't.",
+    "Why do programmers prefer dark mode? Because light attracts bugs.",
+    "I'd tell you a joke about UDP, but you probably wouldn't get it."
+]
+
+PYTHON_TIPS = [
+    "Use list comprehensions to write cleaner and faster code: `[x**2 for x in range(10)]`",
+    "Did you know? You can swap two variables easily without a temp variable: `a, b = b, a`",
+    "Use `enumerate()` if you need both the index and the value while looping through an iterable."
 ]
 
 # Role Categories
@@ -135,7 +161,7 @@ class DistroSelect(Select):
         role = interaction.guild.get_role(selected_role_id)
         
         if not role:
-            return await interaction.response.send_message("❌ Rol sunucuda bulunamadı!", ephemeral=True)
+            return await interaction.response.send_message("❌ Role not found on the server!", ephemeral=True)
             
         # Check and remove existing distro roles
         roles_to_remove = [r for r in interaction.user.roles if r.id in ALL_DISTRO_ROLES and r.id != selected_role_id]
@@ -143,7 +169,7 @@ class DistroSelect(Select):
             await interaction.user.remove_roles(*roles_to_remove)
             
         await interaction.user.add_roles(role)
-        await interaction.response.send_message(f"✅ Başarıyla `{role.name}` rolünü aldın! (Önceki dağıtım rolün silindi)", ephemeral=True)
+        await interaction.response.send_message(f"✅ You have successfully claimed the `{role.name}` role! (Previous distro role removed)", ephemeral=True)
 
 class GPUSelect(Select):
     def __init__(self):
@@ -159,7 +185,7 @@ class GPUSelect(Select):
         role = interaction.guild.get_role(selected_role_id)
         
         if not role:
-            return await interaction.response.send_message("❌ Rol sunucuda bulunamadı!", ephemeral=True)
+            return await interaction.response.send_message("❌ Role not found on the server!", ephemeral=True)
             
         # Check and remove existing GPU roles
         roles_to_remove = [r for r in interaction.user.roles if r.id in ALL_GPU_ROLES and r.id != selected_role_id]
@@ -167,7 +193,7 @@ class GPUSelect(Select):
             await interaction.user.remove_roles(*roles_to_remove)
             
         await interaction.user.add_roles(role)
-        await interaction.response.send_message(f"✅ Başarıyla `{role.name}` sürücü rolünü aldın! (Önceki GPU rolün silindi)", ephemeral=True)
+        await interaction.response.send_message(f"✅ You have successfully claimed the `{role.name}` driver role! (Previous GPU role removed)", ephemeral=True)
 
 class RolesView(View):
     def __init__(self):
@@ -202,7 +228,7 @@ class RolesView(View):
         ]
         self.add_item(DistroSelect(placeholder="Ubuntu / Ubuntu-based", options=ubuntu_opts, custom_id="ubuntu_menu"))
 
-        # 4. Independent (Bağımsız)
+        # 4. Independent
         indep_opts = [
             discord.SelectOption(label="Gentoo", value="1521870225228955798"),
             discord.SelectOption(label="Nobara", value="1521872173688422420"),
@@ -262,7 +288,7 @@ async def on_member_join(member):
         try:
             await member.add_roles(role)
         except Exception as e:
-            print(f"Otorol verme hatası: {e}")
+            print(f"Auto-role assignment error: {e}")
 
 async def apply_warning(member, reason, guild):
     if member.id not in warning_db:
@@ -282,7 +308,7 @@ async def apply_warning(member, reason, guild):
         try:
             await member.ban(reason="Automated Ban - Exceeded 3 Active Warnings Limit.")
             if warn_channel:
-                await warn_channel.send(f"🚨 {member.mention} 3 uyarı sınırını aştığı için sunucudan banlandı!")
+                await warn_channel.send(f"🚨 {member.mention} has been banned from the server for exceeding the 3-warning limit!")
             warning_db[member.id] = 0
         except:
             pass
@@ -292,7 +318,7 @@ async def on_message(message):
     if message.author == bot.user or message.author.bot:
         return
 
-    # A. SPAM FILTER (Mod ve Adminler hariç)
+    # A. SPAM FILTER (Exempts Mods and Admins)
     is_mod = message.author.guild_permissions.manage_messages
     if not is_mod:
         if message.author.id not in user_message_cache:
@@ -305,9 +331,9 @@ async def on_message(message):
             
         if len(user_message_cache[message.author.id]) == 3 and len(set(user_message_cache[message.author.id])) == 1:
             await message.delete()
-            await message.channel.send(f"⚠️ {message.author.mention}, lütfen spam yapma!", delete_after=5)
+            await message.channel.send(f"⚠️ {message.author.mention}, please stop spamming!", delete_after=5)
             await apply_warning(message.author, "Spam / Flooding the chat", message.guild)
-            user_message_cache[message.author.id] = [] # Cache temizle
+            user_message_cache[message.author.id] = [] # Clear cache
             return
 
     # B. PROFANITY FILTER
@@ -317,11 +343,11 @@ async def on_message(message):
             await message.delete()
             await message.channel.send(f"Hey {message.author.mention}, swearing is strictly prohibited on this server!", delete_after=5)
             await apply_warning(message.author, f"Profanity used: ||{message.content}||", message.guild)
-            return  # XP kazanımı iptal
+            return  # Cancel XP gain
         except Exception as e:
             print(f"Profanity filter error: {e}")
 
-    # C. XP ENGINE TRIGGER (Çok Yavaş Kasılan XP: 5 ila 10 XP)
+    # C. XP ENGINE TRIGGER (Very Slow XP Gain: 5 to 10 XP)
     gained = random.randint(5, 10)
     leveled_up = add_xp(message.author.id, gained)
     if leveled_up:
@@ -329,15 +355,15 @@ async def on_message(message):
         level_channel = bot.get_channel(LEVEL_LOG_CHANNEL_ID)
         
         if level_channel:
-            await level_channel.send(f"🎉 Tebrikler {message.author.mention}! Sohbet ederek **Seviye {new_level}** oldun!")
+            await level_channel.send(f"🎉 Congratulations {message.author.mention}! You've reached **Level {new_level}** by chatting!")
             
-        # Medya İzni Kontrolü
+        # Media Permission Check
         if new_level == 20:
             media_role = message.guild.get_role(MEDIA_ROLE_ID)
             if media_role:
                 await message.author.add_roles(media_role)
                 if level_channel:
-                    await level_channel.send(f"📸 {message.author.mention} 20. seviyeye ulaştı ve **Medya İzni** rolünü kazandı!")
+                    await level_channel.send(f"📸 {message.author.mention} has reached level 20 and earned the **Media Permission** role!")
 
     await bot.process_commands(message)
 
@@ -350,10 +376,147 @@ async def roles(ctx):
     """Prints the Dropdown Role Selection panel."""
     role_embed = discord.Embed(
         title="Choose Your Primary Distro & Graphics Driver", 
-        description="Aşağıdaki menüleri kullanarak ana Linux dağıtımını ve GPU sürücünü seçebilirsin. Her kategoriden sadece 1 rol alabilirsin.", 
+        description="Use the menus below to select your primary Linux distribution and GPU driver. You can only have 1 role per category.", 
         color=discord.Color.dark_theme()
     )
     await ctx.send(embed=role_embed, view=RolesView())
+
+@bot.command()
+async def stats(ctx, member: discord.Member = None):
+    """Displays user level card."""
+    member = member or ctx.author
+    if member.id not in xp_db:
+        xp_db[member.id] = {"total": 0, "daily": 0, "weekly": 0, "monthly": 0, "level": 1, "last_msg": 0}
+        
+    data = xp_db[member.id]
+    next_xp = data["level"] * 50
+    
+    embed = discord.Embed(title=f"📊 {member.name}'s Server Statistics", color=discord.Color.purple())
+    embed.set_thumbnail(url=member.display_avatar.url)
+    embed.add_field(name="Current Level", value=f"`Level {data['level']}`", inline=True)
+    embed.add_field(name="Total XP", value=f"`{data['total']} / {next_xp} XP`", inline=True)
+    await ctx.send(embed=embed)
+
+@bot.command()
+@commands.has_permissions(kick_members=True)
+async def warning(ctx, member: discord.Member, *, reason="Manual Warning"):
+    """Adds a manual warning to a user."""
+    await apply_warning(member, reason, ctx.guild)
+    await ctx.send(f"✅ A warning has been issued to {member.mention}. Details have been sent to the warnings channel.")
+
+@bot.command()
+@commands.has_permissions(ban_members=True)
+async def ban(ctx, member: discord.Member, *, reason=None):
+    """Bans a member from the server."""
+    await member.ban(reason=reason)
+    await ctx.send(f"🔨 {member.name} has been successfully banned. Reason: {reason if reason else 'Not specified'}")
+
+# --- 12 NEW FUN & INFO COMMANDS ---
+
+@bot.command()
+async def weather(ctx, *, city: str = "Izmir"):
+    """Fetches text-based weather for a given city."""
+    async with aiohttp.ClientSession() as session:
+        # Using wttr.in with format=3 (location, weather icon, temperature)
+        async with session.get(f'https://wttr.in/{city}?format=3') as resp:
+            if resp.status == 200:
+                text = await resp.text()
+                await ctx.send(f"🌤️ **Weather Report:** `{text.strip()}`")
+            else:
+                await ctx.send("❌ Could not fetch weather data right now. Try again later.")
+
+@bot.command()
+async def tankfact(ctx):
+    """Sends a random WW1/WW2 tank fact."""
+    fact = random.choice(TANK_FACTS)
+    embed = discord.Embed(title="🪖 Historical Tank Fact", description=fact, color=discord.Color.dark_gray())
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def mmafact(ctx):
+    """Sends a random MMA/UFC fact."""
+    fact = random.choice(MMA_FACTS)
+    embed = discord.Embed(title="🥊 MMA & Combat Sports Fact", description=fact, color=discord.Color.red())
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def pythontip(ctx):
+    """Sends a random Python programming tip."""
+    tip = random.choice(PYTHON_TIPS)
+    embed = discord.Embed(title="🐍 Daily Python Tip", description=tip, color=discord.Color.gold())
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def tea(ctx, member: discord.Member = None):
+    """Serves a nice virtual cup of Sri Lankan tea."""
+    member = member or ctx.author
+    await ctx.send(f"☕ {member.mention}, here is a freshly brewed cup of strong, unsweetened Sri Lankan tea for you. Enjoy!")
+
+@bot.command()
+async def ping(ctx):
+    """Shows the bot's latency."""
+    latency = round(bot.latency * 1000)
+    await ctx.send(f"🏓 Pong! Latency is `{latency}ms`.")
+
+@bot.command()
+async def serverinfo(ctx):
+    """Displays information about the server."""
+    guild = ctx.guild
+    embed = discord.Embed(title=f"🏰 {guild.name} Server Info", color=discord.Color.blue())
+    embed.add_field(name="Server ID", value=f"`{guild.id}`", inline=True)
+    embed.add_field(name="Member Count", value=f"`{guild.member_count}`", inline=True)
+    embed.add_field(name="Created On", value=f"`{guild.created_at.strftime('%Y-%m-%d')}`", inline=True)
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def avatar(ctx, member: discord.Member = None):
+    """Displays a user's avatar."""
+    member = member or ctx.author
+    embed = discord.Embed(title=f"🖼️ {member.name}'s Avatar", color=discord.Color.dark_magenta())
+    embed.set_image(url=member.display_avatar.url)
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def coinflip(ctx):
+    """Flips a coin."""
+    choices = ["Heads", "Tails"]
+    result = random.choice(choices)
+    await ctx.send(f"🪙 You flipped a coin and got: **{result}**")
+
+@bot.command()
+async def diceroll(ctx, sides: int = 6):
+    """Rolls a dice with the given number of sides."""
+    if sides < 2:
+        return await ctx.send("❌ A dice needs at least 2 sides!")
+    result = random.randint(1, sides)
+    await ctx.send(f"🎲 You rolled a `{sides}`-sided dice and got: **{result}**")
+
+@bot.command()
+async def 8ball(ctx, *, question: str):
+    """Answers a yes/no question."""
+    responses = [
+        "It is certain.", "Without a doubt.", "Yes, definitely.", 
+        "Ask again later.", "Cannot predict now.", 
+        "Don't count on it.", "My sources say no.", "Very doubtful."
+    ]
+    await ctx.send(f"🎱 **Question:** {question}\n**Answer:** {random.choice(responses)}")
+
+@bot.command()
+async def joke(ctx):
+    """Sends a random programming/tech joke."""
+    joke_text = random.choice(TECH_JOKES)
+    await ctx.send(f"😂 {joke_text}")
+
+@bot.command()
+async def randomlinux(ctx):
+    """Random terminal command."""
+    selected = random.choice(LINUX_COMMANDS)
+    embed = discord.Embed(
+        title=f"🐧 Linux Terminal Library",
+        description=f"**Command:** `{selected['cmd']}`\n\n**Description:** {selected['desc']}",
+        color=discord.Color.blue()
+    )
+    await ctx.send(embed=embed)
 
 @bot.command()
 async def gif(ctx):
@@ -364,48 +527,18 @@ async def gif(ctx):
     await ctx.send(embed=embed)
 
 @bot.command()
-async def stats(ctx, member: discord.Member = None):
-    member = member or ctx.author
-    if member.id not in xp_db:
-        xp_db[member.id] = {"total": 0, "daily": 0, "weekly": 0, "monthly": 0, "level": 1, "last_msg": 0}
-        
-    data = xp_db[member.id]
-    next_xp = data["level"] * 50
-    
-    embed = discord.Embed(title=f"📊 {member.name} Server Statistics", color=discord.Color.purple())
-    embed.set_thumbnail(url=member.display_avatar.url)
-    embed.add_field(name="Current Level", value=f"`Level {data['level']}`", inline=True)
-    embed.add_field(name="Total XP", value=f"`{data['total']} / {next_xp} XP`", inline=True)
-    await ctx.send(embed=embed)
-
-@bot.command()
-async def randomlinux(ctx):
-    selected = random.choice(LINUX_COMMANDS)
-    embed = discord.Embed(
-        title=f"🐧 Linux Terminal Library",
-        description=f"**Command:** `{selected['cmd']}`\n\n**Description:** {selected['desc']}",
-        color=discord.Color.blue()
-    )
-    await ctx.send(embed=embed)
-
-@bot.command()
-@commands.has_permissions(kick_members=True)
-async def warning(ctx, member: discord.Member, *, reason="Manuel Uyarı"):
-    await apply_warning(member, reason, ctx.guild)
-    await ctx.send(f"✅ {member.mention} kullanıcısına uyarı eklendi. Detaylar warnings kanalına iletildi.")
-
-@bot.command()
-@commands.has_permissions(ban_members=True)
-async def ban(ctx, member: discord.Member, *, reason=None):
-    await member.ban(reason=reason)
-    await ctx.send(f"🔨 {member.name} has been successfully banned. Reason: {reason if reason else 'Not specified'}")
-
-@bot.command()
 async def help(ctx):
-    embed = discord.Embed(title="🐧 AdminPingu Commands", color=discord.Color.dark_green())
-    embed.add_field(name="🛡️ Moderation", value="`?warning <user>` - Adds a warning mark.\n`?ban <user>` - Bans member.", inline=False)
-    embed.add_field(name="📊 Analytics & Setup", value="`?stats [user]` - Displays level card.\n`?roles` - Sends Dropdown role panel (Admin).", inline=False)
-    embed.add_field(name="🐧 Fun", value="`?randomlinux` - Random terminal command.\n`?gif` - Random Linux GIF.", inline=False)
+    """Displays all available commands."""
+    embed = discord.Embed(title="🐧 AdminPingu Commands Overview", color=discord.Color.dark_green())
+    
+    embed.add_field(name="🛡️ Moderation", value="`?warning <user>`\n`?ban <user>`", inline=True)
+    embed.add_field(name="📊 Analytics & Setup", value="`?stats [user]`\n`?roles` (Admin)\n`?serverinfo`", inline=True)
+    embed.add_field(name="🐧 Linux & Tech", value="`?randomlinux`\n`?gif`\n`?pythontip`\n`?joke`", inline=True)
+    embed.add_field(name="🎲 Fun & Games", value="`?coinflip`\n`?diceroll [sides]`\n`?8ball <question>`", inline=True)
+    embed.add_field(name="🌍 Info & Culture", value="`?weather [city]`\n`?tankfact`\n`?mmafact`\n`?tea`", inline=True)
+    embed.add_field(name="🛠️ Utility", value="`?ping`\n`?avatar [user]`", inline=True)
+    
+    embed.set_footer(text="Parameters in [brackets] are optional, <angle brackets> are required.")
     await ctx.send(embed=embed)
 
 # ==========================================
@@ -416,7 +549,7 @@ async def on_command_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
         await ctx.send("❌ **ERROR: You lack the necessary privileges!**")
     elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send("❌ **ERROR: Missing argument parameters!**")
+        await ctx.send(f"❌ **ERROR: Missing argument parameters! Try typing `?help`**")
     else:
         print(f"Unhandled system error: {error}")
 
