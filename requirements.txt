@@ -3,3 +3,5 @@ flask
 motor
 certifi
 aiohttp
+easy-pil
+feedparser
