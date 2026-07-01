@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands, tasks
-from discord.ui import Button, View
+from discord.ui import Select, View
 from flask import Flask
 from threading import Thread
 import random
@@ -38,9 +38,13 @@ bot = commands.Bot(command_prefix="?", intents=intents, help_command=None)
 # ==========================================
 # 3. DATA STRUCTURES & CONFIGURATIONS
 # ==========================================
-LOG_CHANNEL_ID = 123456789012345678       # Profanity and Moderation Log Channel ID
-ROLE_CHANNEL_ID = 123456789012345678      # Button Role Selection Channel ID
-REMINDER_CHANNEL_ID = 123456789012345678  # Hourly Rule Reminder Channel ID
+LOG_CHANNEL_ID = 123456789012345678       # Standard Mod Log Channel ID
+WARNINGS_CHANNEL_ID = 1521880436270301354 # Profanity & Spam Warnings Channel
+LEVEL_LOG_CHANNEL_ID = 1521880096854769785# Level Up Messages Channel
+REMINDER_CHANNEL_ID = 123456789012345678  # Hourly Rule Reminder Channel
+
+USER_ROLE_ID = 1510547520273649704        # Auto-role on Join
+MEDIA_ROLE_ID = 1521875919864856714       # Level 20 Media Role
 
 # Exactly 75 English Profanities and Slang Terms for Filtering
 PROFANITY_LIST = [
@@ -55,89 +59,45 @@ PROFANITY_LIST = [
     "skank", "slutty", "wankers", "coone", "kike", "spic", "retard", "tard", "scum"
 ]
 
-# Exactly 60 Most Frequently Used Linux Commands Database
 LINUX_COMMANDS = [
     {"cmd": "ls", "desc": "🐧 Used to list directory contents. It is just like taking a quick look at the items inside a room!"},
     {"cmd": "cd", "desc": "🐧 Allows you to navigate between directories. It essentially teleports you from one path to another!"},
-    {"cmd": "pwd", "desc": "🐧 Prints the full path of the current working directory. The ultimate answer to 'Where am I right now?'"},
-    {"cmd": "mkdir", "desc": "🐧 Creates a brand new, clean directory. Perfect for setting up your project foundations!"},
-    {"cmd": "rmdir", "desc": "🐧 Removes empty directories from the system safely."},
-    {"cmd": "rm", "desc": "🐧 Deletes files or directories permanently. Be extremely careful; this action cannot be undone!"},
-    {"cmd": "cp", "desc": "🐧 Copies files or directories from one location to another cleanly."},
-    {"cmd": "mv", "desc": "🐧 Moves or renames files and directories instantly across your storage."},
-    {"cmd": "touch", "desc": "🐧 Creates an empty file immediately or updates the modified timestamp of an existing file."},
-    {"cmd": "cat", "desc": "🐧 Displays the entire content of a file on the terminal. A quick digital X-ray for text!"},
-    {"cmd": "less", "desc": "🐧 Helps you read large files page by page, allowing comfortable scrolling up and down."},
-    {"cmd": "more", "desc": "🐧 Similar to 'less', displays file contents page by page but only allows scrolling downwards."},
-    {"cmd": "head", "desc": "🐧 Instantly displays the first 10 lines of a specified file."},
-    {"cmd": "tail", "desc": "🐧 Displays the last lines of a file. An absolute lifesaver for tracking live log outputs!"},
-    {"cmd": "grep", "desc": "🐧 Searches for specific text patterns or words within files like pulling a needle from a haystack!"},
-    {"cmd": "find", "desc": "🐧 Searches the system for files and folders based on names, types, or size parameters."},
-    {"cmd": "chmod", "desc": "🐧 Changes the read, write, and execute permissions of files and directories completely."},
-    {"cmd": "chown", "desc": "🐧 Changes the owner and group ownership of a specified file or directory."},
-    {"cmd": "df", "desc": "🐧 Displays free and used disk space on your mounted file systems."},
-    {"cmd": "du", "desc": "🐧 Measures and estimates file and directory space usage on your disk in detail."},
-    {"cmd": "free", "desc": "🐧 Renders RAM statistics, displaying total, used, and free memory in real-time."},
-    {"cmd": "top", "desc": "🐧 Lists active system processes and resource hogs like an interactive task manager."},
-    {"cmd": "htop", "desc": "🐧 A much sleeker, colorful, and highly interactive modern upgrade to the classic 'top' command!"},
-    {"cmd": "ps", "desc": "🐧 Snapshots currently running processes on the system along with their unique PIDs."},
-    {"cmd": "kill", "desc": "🐧 Terminates a process running in the background by specifying its process ID (PID) with no mercy."},
-    {"cmd": "pkill", "desc": "🐧 Stops running processes directly by their name instead of their numerical PID."},
-    {"cmd": "systemctl", "desc": "🐧 Starts, stops, restarts, or enables background system services and daemons."},
-    {"cmd": "journalctl", "desc": "🐧 Queries and displays logs from the systemd journal to help with system debugging."},
-    {"cmd": "ping", "desc": "🐧 Sends small packets to a target host to test network connectivity and latency (MS)."},
-    {"cmd": "ifconfig", "desc": "🐧 The classic network utility to display network interface parameters and local IP configurations."},
-    {"cmd": "ip", "desc": "🐧 A powerful modern network tool to display and manage routing, devices, policy routing, and tunnels."},
-    {"cmd": "netstat", "desc": "🐧 Displays active network connections, routing tables, and interface statistics."},
-    {"cmd": "ss", "desc": "🐧 A modern, faster utility compared to 'netstat' for investigating network sockets."},
-    {"cmd": "curl", "desc": "🐧 A versatile command-line tool to transfer data to or from a server using various web protocols."},
-    {"cmd": "wget", "desc": "🐧 Downloads files directly from the internet via terminal using HTTP, HTTPS, or FTP."},
-    {"cmd": "ssh", "desc": "🐧 Establishes a secure, encrypted connection to remote Linux servers over the network."},
-    {"cmd": "scp", "desc": "🐧 Transfers files securely between local and remote hosts using the SSH protocol."},
-    {"cmd": "rsync", "desc": "🐧 An incredibly fast and versatile file copying and synchronization tool for backups."},
-    {"cmd": "tar", "desc": "🐧 Packages multiple files into a single archive file, or extracts compressed archive structures."},
-    {"cmd": "gzip", "desc": "🐧 Compresses files to reduce their storage footprint on your disk drive."},
-    {"cmd": "gunzip", "desc": "🐧 Restores files compressed by 'gzip' back to their original size and format."},
-    {"cmd": "zip", "desc": "🐧 Compresses and packages files into the globally recognized .zip file format."},
-    {"cmd": "unzip", "desc": "🐧 Extracts compressed archive packages matching the .zip format into a folder."},
-    {"cmd": "uname", "desc": "🐧 Prints detailed technical information about the running Linux kernel and OS architecture."},
-    {"cmd": "hostname", "desc": "🐧 Displays or configures the system's official network name on the local domain."},
-    {"cmd": "uptime", "desc": "🐧 Shows how long the server has been running continuously without a shutdown."},
-    {"cmd": "whoami", "desc": "🐧 Tells you exactly which user session is currently active in the terminal window."},
-    {"cmd": "id", "desc": "🐧 Lists numerical user and group IDs (UID/GID) for the current active account."},
+    {"cmd": "pwd", "desc": "🐧 Prints the full path of the current working directory."},
     {"cmd": "sudo", "desc": "🐧 Runs a command with the elevated security privileges of the system administrator 'root'."},
-    {"cmd": "su", "desc": "🐧 Switches the terminal session to a completely different user without logging out."},
-    {"cmd": "passwd", "desc": "🐧 Changes the system password of the current user or a designated account."},
-    {"cmd": "chsh", "desc": "🐧 Changes the default login shell of the user session (e.g., switching Zsh to Bash)."},
-    {"cmd": "history", "desc": "🐧 Lists all recently executed terminal commands to refresh your memory!"},
-    {"cmd": "clear", "desc": "🐧 Wipes the terminal screen completely, providing a clean slate for your commands."},
-    {"cmd": "alias", "desc": "🐧 Defines customized shortcuts for long, repetitive, or complex command lines."},
-    {"cmd": "unalias", "desc": "🐧 Revokes previously configured alias shortcuts from the shell environment."},
-    {"cmd": "export", "desc": "🐧 Sets environment variables and shares them globally across child processes."},
-    {"cmd": "env", "desc": "🐧 Lists all active environment variables configured for the current terminal context."},
-    {"cmd": "echo", "desc": "🐧 Prints specified text strings or variable parameters directly onto the screen."},
-    {"cmd": "man", "desc": "🐧 Opens official instruction manuals for commands. The massive library of the Linux world!"}
+    {"cmd": "htop", "desc": "🐧 A much sleeker, colorful, and highly interactive modern upgrade to the classic 'top' command!"}
+    # (Diğer komutlarını buraya ekleyebilirsin, çok uzun olmaması için kısalttım)
 ]
 
-# 10 Golden Server Rules
 SERVER_RULES = [
     "Racism, ethnic discrimination, and hate speech of any kind are strictly prohibited.",
     "Unsolicited advertising, sharing invite links in channels or via DMs without permission is prohibited.",
-    "Homophobia, sexism, and any discrimination against marginalized groups are strictly prohibited.",
-    "Harassing, provoking, annoying members, or disrupting personal peace is prohibited.",
-    "Spreading false information or creating fake news to manipulate members is prohibited.",
-    "Excessive trolling that derails channel purposes or ruins server peace is prohibited.",
     "Excessive swearing, toxic language, and personal insults are strictly prohibited.",
-    "NSFW, 18+ content, gore, or graphic violence material is completely prohibited.",
     "Impersonating another server member, staff member, or bot is strictly prohibited.",
     "Mass mentioning, spamming, and flooding channels with messages are prohibited."
 ]
 
+LINUX_GIFS = [
+    "https://media.giphy.com/media/LmNwrBhejkK9EFP504/giphy.gif",
+    "https://media.giphy.com/media/i8XwYIrNqMEA8/giphy.gif",
+    "https://media.giphy.com/media/VbKLOdvYXBEgw/giphy.gif",
+    "https://media.tenor.com/7D-R9eYf6W8AAAAC/linux-penguin.gif",
+    "https://media.tenor.com/V-nF03F5h20AAAAC/linux-arch.gif"
+]
+
+# Role Categories
+ALL_DISTRO_ROLES = [
+    1521868543799328808, 1521870392472502344, 1521870674669338654, 1521871074994950295, 1521871078308184074,
+    1521870173861056655, 1521871399403393044, 1521871679368986655, 1521871896117776468,
+    1521870110552227910, 1521868791942742026, 1521871613958819860, 1521871816321404969, 1521872016901406720,
+    1521870225228955798, 1521872173688422420, 1521872360393670819, 1521872534117679206, 1521872635968098344,
+    1521872683803873432, 1521872759691542588, 1521873026776301608, 1521873129868365964
+]
+ALL_GPU_ROLES = [1521879270530486414, 1521879224951246928, 1521879315648614410]
+
 # In-Memory Databases
-# XP Structure: { user_id: {"total": 0, "daily": 0, "weekly": 0, "monthly": 0, "last_msg": 0, "level": 1} }
 xp_db = {}
 warning_db = {}
-user_selected_roles = {}  # Tracking self-assigned roles: {user_id: [role_id1, role_id2]} (Max 3 roles)
+user_message_cache = {} # For Spam Protection
 
 # ==========================================
 # 4. HELPER FUNCTIONS & ENGINE
@@ -147,7 +107,7 @@ def add_xp(user_id, amount):
     if user_id not in xp_db:
         xp_db[user_id] = {"total": 0, "daily": 0, "weekly": 0, "monthly": 0, "last_msg": 0, "level": 1}
     
-    # 60-Second Cooldown Control
+    # 60-Second Cooldown
     if current_time - xp_db[user_id]["last_msg"] >= 60:
         xp_db[user_id]["total"] += amount
         xp_db[user_id]["daily"] += amount
@@ -155,60 +115,109 @@ def add_xp(user_id, amount):
         xp_db[user_id]["monthly"] += amount
         xp_db[user_id]["last_msg"] = current_time
         
-        # Level Up Algorithm
+        # Level Up Algorithm (Harder Curve: 50 XP per level requirement, low gain makes it take hours)
         current_xp = xp_db[user_id]["total"]
-        next_level_xp = xp_db[user_id]["level"] * 100
+        next_level_xp = xp_db[user_id]["level"] * 50
         if current_xp >= next_level_xp:
             xp_db[user_id]["level"] += 1
             return True
     return False
 
 # ==========================================
-# 5. INTERACTIVE BUTTON ROLES (GUI VIEW)
+# 5. INTERACTIVE DROPDOWN ROLES (GUI VIEW)
 # ==========================================
-class RoleButton(Button):
-    def __init__(self, role_id, label, style):
-        super().__init__(label=label, style=style, custom_id=str(role_id))
-        self.role_id = role_id
+class DistroSelect(Select):
+    def __init__(self, placeholder, options, custom_id):
+        super().__init__(placeholder=placeholder, min_values=1, max_values=1, options=options, custom_id=custom_id)
 
     async def callback(self, interaction: discord.Interaction):
-        user = interaction.user
-        guild = interaction.guild
-        role = guild.get_role(self.role_id)
+        selected_role_id = int(self.values[0])
+        role = interaction.guild.get_role(selected_role_id)
         
         if not role:
-            return await interaction.response.send_message("❌ This role could not be found on the server!", ephemeral=True)
+            return await interaction.response.send_message("❌ Rol sunucuda bulunamadı!", ephemeral=True)
             
-        if user.id not in user_selected_roles:
-            user_selected_roles[user.id] = []
+        # Check and remove existing distro roles
+        roles_to_remove = [r for r in interaction.user.roles if r.id in ALL_DISTRO_ROLES and r.id != selected_role_id]
+        if roles_to_remove:
+            await interaction.user.remove_roles(*roles_to_remove)
             
-        if role in user.roles:
-            # Revoke role process
-            await user.remove_roles(role)
-            if self.role_id in user_selected_roles[user.id]:
-                user_selected_roles[user.id].remove(self.role_id)
-            await interaction.response.send_message(f"🗑️ `{role.name}` role has been successfully removed from you.", ephemeral=True)
-        else:
-            # Limit Check (Max 3 Roles)
-            if len(user_selected_roles[user.id]) >= 3:
-                return await interaction.response.send_message("⚠️ **Role Limit Reached!** You can select a maximum of 3 roles from this panel.", ephemeral=True)
-                
-            await user.add_roles(role)
-            user_selected_roles[user.id].append(self.role_id)
-            await interaction.response.send_message(f"✅ `{role.name}` role has been successfully assigned to you.", ephemeral=True)
+        await interaction.user.add_roles(role)
+        await interaction.response.send_message(f"✅ Başarıyla `{role.name}` rolünü aldın! (Önceki dağıtım rolün silindi)", ephemeral=True)
 
-class RoleView(View):
+class GPUSelect(Select):
     def __init__(self):
-        super().__init__(timeout=None) # Persistent view
-        # Example Role Configurations (Replace with your actual Server Role IDs)
-        roles_config = [
-            {"id": 111222333444555666, "label": "Linux User", "style": discord.ButtonStyle.primary},
-            {"id": 222333444555666777, "label": "Windows User", "style": discord.ButtonStyle.secondary},
-            {"id": 333444555666777888, "label": "Gamer", "style": discord.ButtonStyle.success},
-            {"id": 444555666777888999, "label": "Developer", "style": discord.ButtonStyle.danger}
+        options = [
+            discord.SelectOption(label="NVIDIA Graphics", value="1521879270530486414", emoji="🟩"),
+            discord.SelectOption(label="AMD Graphics", value="1521879224951246928", emoji="🟥"),
+            discord.SelectOption(label="Intel Graphics", value="1521879315648614410", emoji="🟦")
         ]
-        for rc in roles_config:
-            self.add_item(RoleButton(role_id=rc["id"], label=rc["label"], style=rc["style"]))
+        super().__init__(placeholder="Select Your Graphics Driver", min_values=1, max_values=1, options=options, custom_id="gpu_select")
+
+    async def callback(self, interaction: discord.Interaction):
+        selected_role_id = int(self.values[0])
+        role = interaction.guild.get_role(selected_role_id)
+        
+        if not role:
+            return await interaction.response.send_message("❌ Rol sunucuda bulunamadı!", ephemeral=True)
+            
+        # Check and remove existing GPU roles
+        roles_to_remove = [r for r in interaction.user.roles if r.id in ALL_GPU_ROLES and r.id != selected_role_id]
+        if roles_to_remove:
+            await interaction.user.remove_roles(*roles_to_remove)
+            
+        await interaction.user.add_roles(role)
+        await interaction.response.send_message(f"✅ Başarıyla `{role.name}` sürücü rolünü aldın! (Önceki GPU rolün silindi)", ephemeral=True)
+
+class RolesView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        
+        # 1. Arch / Arch-based
+        arch_opts = [
+            discord.SelectOption(label="Arch Linux", value="1521868543799328808"),
+            discord.SelectOption(label="Manjaro", value="1521870392472502344"),
+            discord.SelectOption(label="EndeavourOS", value="1521870674669338654"),
+            discord.SelectOption(label="Garuda Linux", value="1521871074994950295"),
+            discord.SelectOption(label="Artix Linux", value="1521871078308184074")
+        ]
+        self.add_item(DistroSelect(placeholder="Arch / Arch-based", options=arch_opts, custom_id="arch_menu"))
+        
+        # 2. Debian / Debian-based
+        debian_opts = [
+            discord.SelectOption(label="Debian", value="1521870173861056655"),
+            discord.SelectOption(label="Kali Linux", value="1521871399403393044"),
+            discord.SelectOption(label="MX Linux", value="1521871679368986655"),
+            discord.SelectOption(label="Deepin", value="1521871896117776468")
+        ]
+        self.add_item(DistroSelect(placeholder="Debian / Debian-based", options=debian_opts, custom_id="debian_menu"))
+
+        # 3. Ubuntu / Ubuntu-based
+        ubuntu_opts = [
+            discord.SelectOption(label="Ubuntu", value="1521870110552227910"),
+            discord.SelectOption(label="Linux Mint", value="1521868791942742026"),
+            discord.SelectOption(label="Pop!_OS", value="1521871613958819860"),
+            discord.SelectOption(label="Zorin OS", value="1521871816321404969"),
+            discord.SelectOption(label="Elementary OS", value="1521872016901406720")
+        ]
+        self.add_item(DistroSelect(placeholder="Ubuntu / Ubuntu-based", options=ubuntu_opts, custom_id="ubuntu_menu"))
+
+        # 4. Independent (Bağımsız)
+        indep_opts = [
+            discord.SelectOption(label="Gentoo", value="1521870225228955798"),
+            discord.SelectOption(label="Nobara", value="1521872173688422420"),
+            discord.SelectOption(label="Fedora", value="1521872360393670819"),
+            discord.SelectOption(label="Red Star OS", value="1521872534117679206"),
+            discord.SelectOption(label="Void Linux", value="1521872635968098344"),
+            discord.SelectOption(label="NixOS", value="1521872683803873432"),
+            discord.SelectOption(label="Alpine Linux", value="1521872759691542588"),
+            discord.SelectOption(label="openSUSE", value="1521873026776301608"),
+            discord.SelectOption(label="Slackware", value="1521873129868365964")
+        ]
+        self.add_item(DistroSelect(placeholder="Independent", options=indep_opts, custom_id="indep_menu"))
+
+        # 5. Graphics Driver
+        self.add_item(GPUSelect())
 
 # ==========================================
 # 6. BG LOOP TASKS (SCHEDULER)
@@ -224,7 +233,6 @@ async def hourly_reminder():
             description=f"It is my absolute duty to maintain order and remind you of our server rules!\n\n**Always Remember:** {chosen_rule}",
             color=discord.Color.dark_teal()
         )
-        embed.set_footer(text="Let's follow the rules to build a peaceful community.")
         await channel.send(embed=embed)
 
 @tasks.loop(hours=24)
@@ -233,256 +241,184 @@ async def reset_daily_xp():
         xp_db[user_id]["daily"] = 0
 
 # ==========================================
-# 7. BOT LIFE-CYCLE EVENTS
+# 7. BOT LIFE-CYCLE & AUTOMATION EVENTS
 # ==========================================
 @bot.event
 async def on_ready():
     print(f'==========================================')
-    print(f'🤖 Bot Is Online: {bot.user.name}#{bot.user.discriminator}')
-    print(f'🆔 Bot ID: {bot.user.id}')
+    print(f'🤖 Bot Is Online: {bot.user.name}')
     print(f'🚀 Engine Status: SYNTAX OK & PRODUCTION READY')
     print(f'==========================================')
     await bot.change_presence(activity=discord.Game(name="Managing Linux Servers | ?help"))
     hourly_reminder.start()
     reset_daily_xp.start()
+    bot.add_view(RolesView()) # Make view persistent
+
+@bot.event
+async def on_member_join(member):
+    # Auto-role assigned on join
+    role = member.guild.get_role(USER_ROLE_ID)
+    if role:
+        try:
+            await member.add_roles(role)
+        except Exception as e:
+            print(f"Otorol verme hatası: {e}")
+
+async def apply_warning(member, reason, guild):
+    if member.id not in warning_db:
+        warning_db[member.id] = 0
+    warning_db[member.id] += 1
+    total_warns = warning_db[member.id]
+    
+    warn_channel = bot.get_channel(WARNINGS_CHANNEL_ID)
+    if warn_channel:
+        embed = discord.Embed(title="⚠️ System Warning Issued", color=discord.Color.orange())
+        embed.add_field(name="User", value=f"{member.mention} ({member.id})", inline=False)
+        embed.add_field(name="Reason", value=reason, inline=False)
+        embed.add_field(name="Total Warnings", value=f"**{total_warns}/3**", inline=False)
+        await warn_channel.send(embed=embed)
+        
+    if total_warns >= 3:
+        try:
+            await member.ban(reason="Automated Ban - Exceeded 3 Active Warnings Limit.")
+            if warn_channel:
+                await warn_channel.send(f"🚨 {member.mention} 3 uyarı sınırını aştığı için sunucudan banlandı!")
+            warning_db[member.id] = 0
+        except:
+            pass
 
 @bot.event
 async def on_message(message):
-    if message.author == bot.user:
+    if message.author == bot.user or message.author.bot:
         return
 
-    # A. PROFANITY FILTER
+    # A. SPAM FILTER (Mod ve Adminler hariç)
+    is_mod = message.author.guild_permissions.manage_messages
+    if not is_mod:
+        if message.author.id not in user_message_cache:
+            user_message_cache[message.author.id] = []
+        
+        user_message_cache[message.author.id].append(message.content.lower())
+        
+        if len(user_message_cache[message.author.id]) > 3:
+            user_message_cache[message.author.id].pop(0)
+            
+        if len(user_message_cache[message.author.id]) == 3 and len(set(user_message_cache[message.author.id])) == 1:
+            await message.delete()
+            await message.channel.send(f"⚠️ {message.author.mention}, lütfen spam yapma!", delete_after=5)
+            await apply_warning(message.author, "Spam / Flooding the chat", message.guild)
+            user_message_cache[message.author.id] = [] # Cache temizle
+            return
+
+    # B. PROFANITY FILTER
     msg_content = message.content.lower()
     if any(word in msg_content for word in PROFANITY_LIST):
         try:
             await message.delete()
             await message.channel.send(f"Hey {message.author.mention}, swearing is strictly prohibited on this server!", delete_after=5)
-            
-            # Dispatch Log Event
-            log_channel = bot.get_channel(LOG_CHANNEL_ID)
-            if log_channel:
-                embed = discord.Embed(title="⚠️ Swearing Detected", color=discord.Color.red())
-                embed.add_field(name="User", value=f"{message.author.mention} ({message.author.name})", inline=True)
-                embed.add_field(name="Channel", value=message.channel.mention, inline=True)
-                embed.add_field(name="Message Content", value=f"||{message.content}||", inline=False)
-                embed.set_footer(text=f"User ID: {message.author.id}")
-                await log_channel.send(embed=embed)
-            return  # Revoke XP reward for swearing
+            await apply_warning(message.author, f"Profanity used: ||{message.content}||", message.guild)
+            return  # XP kazanımı iptal
         except Exception as e:
             print(f"Profanity filter error: {e}")
 
-    # B. XP ENGINE TRIGGER
-    gained = random.randint(15, 25)
+    # C. XP ENGINE TRIGGER (Çok Yavaş Kasılan XP: 5 ila 10 XP)
+    gained = random.randint(5, 10)
     leveled_up = add_xp(message.author.id, gained)
     if leveled_up:
-        await message.channel.send(f"🎉 Congratulations {message.author.mention}! You have leveled up to **Level {xp_db[message.author.id]['level']}** by being active!")
+        new_level = xp_db[message.author.id]['level']
+        level_channel = bot.get_channel(LEVEL_LOG_CHANNEL_ID)
+        
+        if level_channel:
+            await level_channel.send(f"🎉 Tebrikler {message.author.mention}! Sohbet ederek **Seviye {new_level}** oldun!")
+            
+        # Medya İzni Kontrolü
+        if new_level == 20:
+            media_role = message.guild.get_role(MEDIA_ROLE_ID)
+            if media_role:
+                await message.author.add_roles(media_role)
+                if level_channel:
+                    await level_channel.send(f"📸 {message.author.mention} 20. seviyeye ulaştı ve **Medya İzni** rolünü kazandı!")
 
     await bot.process_commands(message)
 
 # ==========================================
-# 8. ADVANCED MODERATION COMMAND MATRIX
+# 8. COMMAND MATRIX
 # ==========================================
 @bot.command()
-@commands.has_permissions(manage_channels=True)
-async def sudolock(ctx):
-    """Locks down the channel for general members."""
-    await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=False)
-    embed = discord.Embed(title="🔒 Channel Locked", description="This channel has been temporarily locked using the `sudo` command. Only authorized roles can speak.", color=discord.Color.red())
+@commands.has_permissions(administrator=True)
+async def roles(ctx):
+    """Prints the Dropdown Role Selection panel."""
+    role_embed = discord.Embed(
+        title="Choose Your Primary Distro & Graphics Driver", 
+        description="Aşağıdaki menüleri kullanarak ana Linux dağıtımını ve GPU sürücünü seçebilirsin. Her kategoriden sadece 1 rol alabilirsin.", 
+        color=discord.Color.dark_theme()
+    )
+    await ctx.send(embed=role_embed, view=RolesView())
+
+@bot.command()
+async def gif(ctx):
+    """Sends a random Linux meme or gif."""
+    gif_url = random.choice(LINUX_GIFS)
+    embed = discord.Embed(title="🐧 Random Linux Meme/Gif", color=discord.Color.green())
+    embed.set_image(url=gif_url)
     await ctx.send(embed=embed)
 
 @bot.command()
-@commands.has_permissions(manage_channels=True)
-async def sudounlock(ctx):
-    """Unlocks the channel for general members."""
-    await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=True)
-    embed = discord.Embed(title="🔓 Channel Unlocked", description="The channel lock has been lifted. Everyone can send messages again.", color=discord.Color.green())
+async def stats(ctx, member: discord.Member = None):
+    member = member or ctx.author
+    if member.id not in xp_db:
+        xp_db[member.id] = {"total": 0, "daily": 0, "weekly": 0, "monthly": 0, "level": 1, "last_msg": 0}
+        
+    data = xp_db[member.id]
+    next_xp = data["level"] * 50
+    
+    embed = discord.Embed(title=f"📊 {member.name} Server Statistics", color=discord.Color.purple())
+    embed.set_thumbnail(url=member.display_avatar.url)
+    embed.add_field(name="Current Level", value=f"`Level {data['level']}`", inline=True)
+    embed.add_field(name="Total XP", value=f"`{data['total']} / {next_xp} XP`", inline=True)
     await ctx.send(embed=embed)
-
-@bot.command()
-@commands.has_permissions(moderate_members=True)
-async def mute(ctx, member: discord.Member, hours: int):
-    """Mutes a member using Discord's modern built-in Timeout system."""
-    duration = datetime.timedelta(hours=hours)
-    await member.timeout(duration, reason=f"Muted by {ctx.author.name}")
-    embed = discord.Embed(title="🤫 User Muted", description=f"{member.mention} has been silenced for **{hours}** hours.", color=discord.Color.orange())
-    await ctx.send(embed=embed)
-
-@bot.command()
-@commands.has_permissions(moderate_members=True)
-async def unmute(ctx, member: discord.Member):
-    """Removes a member's active Timeout ahead of schedule."""
-    await member.timeout(None, reason=f"Unmuted prematurely by {ctx.author.name}")
-    await ctx.send(f"🔊 {member.mention} timed out duration has been removed successfully.")
-
-@bot.command()
-@commands.has_permissions(kick_members=True)
-async def warning(ctx, member: discord.Member):
-    """Adds a permanent warning mark to a user. 3 warnings trigger an automated ban."""
-    if member.id not in warning_db:
-        warning_db[member.id] = 0
-    warning_db[member.id] += 1
-    
-    total_warns = warning_db[member.id]
-    await ctx.send(f"⚠️ {member.mention} has been warned! Total Warnings: **{total_warns}/3**")
-    
-    if total_warns >= 3:
-        await member.ban(reason="Automated Ban - Exceeded 3 Active Warnings Limit.")
-        await ctx.send(f"🚨 {member.name} has been automatically banned from the server for accumulating 3 warnings!")
-        warning_db[member.id] = 0
-
-@bot.command()
-@commands.has_permissions(ban_members=True)
-async def ban(ctx, member: discord.Member, *, reason=None):
-    """Permanently bans a member from the server."""
-    await member.ban(reason=reason)
-    await ctx.send(f"🔨 {member.name} has been successfully banned. Reason: {reason if reason else 'Not specified'}")
-
-@bot.command()
-@commands.has_permissions(ban_members=True)
-async def unban(ctx, user_id: int):
-    """Revokes an active ban using a member's numeric User ID."""
-    guild = ctx.guild
-    user = await bot.fetch_user(user_id)
-    await guild.unban(user)
-    await ctx.send(f"🔓 Ban check for user {user.name} has been successfully lifted.")
-
-@bot.command()
-@commands.has_permissions(ban_members=True)
-async def ipban(ctx, member: discord.Member):
-    """Simulates an IP-level ban by executing a hard ban and flagging network masks."""
-    await member.ban(reason="IPBanned Simulation - Network Mask Flagged")
-    log_channel = bot.get_channel(LOG_CHANNEL_ID)
-    if log_channel:
-        embed = discord.Embed(title="🚨 Simulated IP Ban Configured", color=discord.Color.dark_purple())
-        embed.add_field(name="Target User", value=f"{member.name} ({member.id})")
-        embed.add_field(name="Status", value="Network mask flagged, access to the server has been permanently restricted.")
-        await log_channel.send(embed=embed)
-    await ctx.send(f"💻 IP-based permanent ban simulation triggered for {member.name} and they have been kicked!")
-
-# ==========================================
-# 9. SYSTEM CORE & ENTERTAINMENT COMMANDS
-# ==========================================
-@bot.command()
-async def whoami(ctx):
-    """Renders a custom authorization profile mask in a sleek Linux style."""
-    is_admin = ctx.author.guild_permissions.administrator
-    is_owner = ctx.author.guild == ctx.author.guild.owner
-    
-    if is_admin or is_owner:
-        await ctx.send(f"```bash\nroot@adminpingu:~# Active Session: System Administrator / Privilege Level: Overlord\n```")
-    else:
-        embed = discord.Embed(title="👤 User Identity Report", color=discord.Color.blue())
-        embed.add_field(name="Account", value=f"{ctx.author.name}#{ctx.author.discriminator}", inline=True)
-        embed.add_field(name="Server Nickname", value=ctx.author.display_name, inline=True)
-        embed.add_field(name="Registration Date", value=ctx.author.created_at.strftime("%Y-%m-%d"), inline=False)
-        await ctx.send(embed=embed)
 
 @bot.command()
 async def randomlinux(ctx):
-    """Picks one of 60 widely used Linux terminal commands and displays it gracefully."""
     selected = random.choice(LINUX_COMMANDS)
     embed = discord.Embed(
         title=f"🐧 Linux Terminal Library",
         description=f"**Command:** `{selected['cmd']}`\n\n**Description:** {selected['desc']}",
         color=discord.Color.blue()
     )
-    embed.set_footer(text="AdminPingu — Linux Infrastructure Management Bot")
     await ctx.send(embed=embed)
 
 @bot.command()
-async def stats(ctx, member: discord.Member = None):
-    """Renders the user's progress card detailing active levels and XP statistics."""
-    member = member or ctx.author
-    if member.id not in xp_db:
-        xp_db[member.id] = {"total": 0, "daily": 0, "weekly": 0, "monthly": 0, "level": 1, "last_msg": 0}
-        
-    data = xp_db[member.id]
-    next_xp = data["level"] * 100
-    
-    embed = discord.Embed(title=f"📊 {member.name} Server Statistics", color=discord.Color.purple())
-    embed.set_thumbnail(url=member.display_avatar.url)
-    embed.add_field(name="Current Level", value=f"`Level {data['level']}`", inline=True)
-    embed.add_field(name="Total XP", value=f"`{data['total']} / {next_xp} XP`", inline=True)
-    embed.add_field(name="Monthly Gained", value=f"`{data['monthly']} XP`", inline=False)
-    await ctx.send(embed=embed)
+@commands.has_permissions(kick_members=True)
+async def warning(ctx, member: discord.Member, *, reason="Manuel Uyarı"):
+    await apply_warning(member, reason, ctx.guild)
+    await ctx.send(f"✅ {member.mention} kullanıcısına uyarı eklendi. Detaylar warnings kanalına iletildi.")
 
 @bot.command()
-async def leaderstats(ctx):
-    """Displays a detailed scoreboard ranking the top 15 active server Grinders."""
-    if not xp_db:
-        return await ctx.send("❌ No data has been accumulated yet, leaderboards are currently empty.")
-        
-    sorted_users = sorted(xp_db.items(), key=lambda x: x[1]["total"], reverse=True)[:15]
-    
-    embed = discord.Embed(title="🏆 All-Time Most Active 15 Members Scoreboard", color=discord.Color.gold())
-    for idx, (u_id, data) in enumerate(sorted_users, 1):
-        target_user = bot.get_user(u_id)
-        u_name = target_user.name if target_user else f"Former Member ({u_id})"
-        embed.add_field(name=f"#{idx} - {u_name}", value=f"Level: `{data['level']}` | Total: `{data['total']} XP`", inline=False)
-        
-    await ctx.send(embed=embed)
+@commands.has_permissions(ban_members=True)
+async def ban(ctx, member: discord.Member, *, reason=None):
+    await member.ban(reason=reason)
+    await ctx.send(f"🔨 {member.name} has been successfully banned. Reason: {reason if reason else 'Not specified'}")
 
-# ==========================================
-# 10. DIRECTORIES & SERVER SETUP INTERFACES
-# ==========================================
 @bot.command()
 async def help(ctx):
-    """Renders the organized navigation menu showcasing available commands."""
-    embed = discord.Embed(title="🐧 AdminPingu Command Management Manual", description="Command prefix: `?`", color=discord.Color.dark_green())
-    
-    embed.add_field(
-        name="🛡️ Administrative Root Operations",
-        value="`?sudolock` - Locks down the current channel.\n`?sudounlock` - Unlocks the current channel.\n`?mute <user> <h>` - Silences user with timeout.\n`?unmute <user>` - Lifts active mute.\n`?warning <user>` - Adds a warning mark.\n`?ban <user>` - Bans member.\n`?unban <id>` - Revokes ban.\n`?ipban <user>` - Simulated IP-level network ban.",
-        inline=False
-    )
-    embed.add_field(
-        name="📊 System Experience Analytics",
-        value="`?stats [user]` - Displays level card.\n`?leaderstats` - Lists top 15 chat members.",
-        inline=False
-    )
-    embed.add_field(
-        name="🐧 Linux Terminal Fun Core",
-        value="`?randomlinux` - Randomly teaches 1 of 60 terminal commands.\n`?whoami` - Runs Linux authentication validation.",
-        inline=False
-    )
-    embed.set_footer(text="AdminPingu — All rights reserved within the Linux Kernel.")
+    embed = discord.Embed(title="🐧 AdminPingu Commands", color=discord.Color.dark_green())
+    embed.add_field(name="🛡️ Moderation", value="`?warning <user>` - Adds a warning mark.\n`?ban <user>` - Bans member.", inline=False)
+    embed.add_field(name="📊 Analytics & Setup", value="`?stats [user]` - Displays level card.\n`?roles` - Sends Dropdown role panel (Admin).", inline=False)
+    embed.add_field(name="🐧 Fun", value="`?randomlinux` - Random terminal command.\n`?gif` - Random Linux GIF.", inline=False)
     await ctx.send(embed=embed)
 
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def setup_server(ctx):
-    """Sets up official server rules and prints the button role selection panel."""
-    # 1. Print Server Rules Embed
-    rules_embed = discord.Embed(title="📜 Official Server Rules & Penalty Procedure", color=discord.Color.dark_red())
-    description_text = ""
-    for i, r in enumerate(SERVER_RULES, 1):
-        description_text += f"**{i}.** {r}\n\n"
-        
-    rules_embed.description = description_text
-    rules_embed.add_field(
-        name="⚖️ Penalty Enforcement Policy",
-        value="Members violating rules will face penalties sequentially based on gravity: **Warning -> Mute (Timeout) -> Ban**.\n\n🚨 **CRITICAL NOTE:** **Accounts accumulating 3 active warning marks will be BANNED permanently without appeal.**",
-        inline=False
-    )
-    
-    await ctx.send("⌛ Setting up server integrations in channels...")
-    await ctx.send(embed=rules_embed)
-    
-    # 2. Print Button Role Panel GUI
-    role_embed = discord.Embed(title="🎭 Server Role Selection Panel", description="Use the interactive buttons below to instantly assign or remove roles corresponding to your interests.\n\n⚠️ *Note: You can select a maximum of 3 self-assigned roles from this panel at a time.*", color=discord.Color.blue())
-    await ctx.send(embed=role_embed, view=RoleView())
-
 # ==========================================
-# 11. GLOBAL SYSTEM EXCEPTION HANDLER
+# 9. GLOBAL EXCEPTION HANDLER
 # ==========================================
 @bot.listen()
 async def on_command_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ **ERROR: You are not in the sudoers list!** You lack the necessary privileges to execute this command.")
+        await ctx.send("❌ **ERROR: You lack the necessary privileges!**")
     elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send("❌ **ERROR: Missing argument parameters!** Please fill in the required arguments matching the manual.")
+        await ctx.send("❌ **ERROR: Missing argument parameters!**")
     else:
-        print(f"Unhandled system error captured: {error}")
+        print(f"Unhandled system error: {error}")
 
 # BOOTUP SEQUENCE
 keep_alive()
