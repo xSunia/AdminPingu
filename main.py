@@ -6,6 +6,7 @@ from threading import Thread
 import random
 import time
 import datetime
+import os
 
 # ==========================================
 # 1. RENDER KEEP-ALIVE SYSTEM (FLASK SERVER)
@@ -485,4 +486,4 @@ async def on_command_error(ctx, error):
 
 # BOOTUP SEQUENCE
 keep_alive()
-bot.run("MTUyMTg1MjQ3NTU4NDI4MjcyNg.GizTXB.bqd1VNqyr67munzlMCVqoJR6baoNmHBtxy3wFY")
+bot.run(os.environ["MTUyMTg1MjQ3NTU4NDI4MjcyNg.GizTXB.bqd1VNqyr67munzlMCVqoJR6baoNmHBtxy3wFY"])
