@@ -9,17 +9,19 @@ import datetime
 import os
 import aiohttp
 import asyncio
-import certifi # OPTİMİZASYON: Bulut/Linux sunucularda MongoDB SSL hatalarını önlemek için eklendi.
+import certifi
+import feedparser
+from easy_pil import Editor, Canvas, Font, load_image_async
 from motor.motor_asyncio import AsyncIOMotorClient
 
 # ==========================================
-# 1. RENDER KEEP-ALIVE SYSTEM (FLASK SERVER)
+# 1. RENDER KEEP-ALIVE SYSTEM
 # ==========================================
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "AdminPingu is operational and running smoothly!"
+    return "AdminPingu Terminator Edition is OPERATIONAL."
 
 def run():
     app.run(host='0.0.0.0', port=8080)
@@ -40,15 +42,27 @@ intents.guilds = True
 bot = commands.Bot(command_prefix="?", intents=intents, help_command=None)
 
 # ==========================================
-# 3. DATA STRUCTURES & CONFIGURATIONS
+# 3. DATA STRUCTURES, ROLES & CONFIGURATIONS
 # ==========================================
 LOG_CHANNEL_ID = 123456789012345678       
 WARNINGS_CHANNEL_ID = 1521880436270301354 
 LEVEL_LOG_CHANNEL_ID = 1521880096854769785
 REMINDER_CHANNEL_ID = 123456789012345678  
+EPIC_LEVEL_100_CHANNEL = 1510339895032418508 
 
 USER_ROLE_ID = 1510547520273649704        
 MEDIA_ROLE_ID = 1521875919864856714       
+
+# YENİ: LEVEL ROL MATRİSİ
+LEVEL_ROLES = {
+    5: 1521923955127226609,
+    10: 1521924218479186102,
+    15: 1521924385647366210,
+    20: 1521924589230358708,
+    25: 1521924699926302740,
+    50: 1521924800682004530,
+    100: 1521924931875635210
+}
 
 PROFANITY_LIST = [
     "fuck", "shit", "bitch", "asshole", "dick", "pussy", "cunt", "bastard", "motherfucker", 
@@ -122,71 +136,76 @@ ALL_DISTRO_ROLES = [
     1521870110552227910, 1521868791942742026, 1521871613958819860, 1521871816321404969, 1521872016901406720,
     1521870225228955798, 1521872173688422420, 1521872360393670819, 1521872534117679206, 1521872635968098344,
     1521872683803873432, 1521872759691542588, 1521873026776301608, 1521873129868365964,
-    1521909235594825941, 1521909235594825999 # Added Windows 11 & FreeBSD placeholder
+    1521909235594825941, 1521909235594825999
 ]
 ALL_GPU_ROLES = [1521879270530486414, 1521879224951246928, 1521879315648614410]
 
 # ==========================================
-# 4. MONGODB DATABASE SETUP (OPTIMIZED & CONNECTED)
+# 4. MONGODB DATABASE SETUP & OPTIMIZED CACHING
 # ==========================================
 MONGO_URI = os.environ.get("MONGO_URI")
 
-# OPTİMİZASYON: Sunucu zaman aşımını 5000ms (5 saniye) ile sınırladık. 
-# Böylece DB engelli bile olsa bot donup kalmaz.
 try:
     mongo_client = AsyncIOMotorClient(MONGO_URI, tlsCAFile=certifi.where(), serverSelectionTimeoutMS=5000)
     db = mongo_client["AdminPinguDB"]
     xp_collection = db["users_xp"]
+    config_collection = db["server_config"] # Haber ve Join kanallarını kaydetmek için yeni koleksiyon
 except Exception as e:
     print(f"MongoDB Başlatma Hatası: {e}")
 
 warning_db = {}
 user_message_cache = {} 
+# OPTİMİZASYON: Sunucu binlerce kişiye ulaşsa bile DB'yi çökertmemek için In-Memory Cache eklendi.
+xp_cooldown_cache = {} 
 
 # ==========================================
 # 5. HELPER FUNCTIONS & ENGINE
 # ==========================================
 async def add_xp(user_id, amount):
-    """Adds XP to user securely via MongoDB and returns (leveled_up, new_level)."""
+    """Adds XP to user securely via MongoDB with high-load RAM caching."""
     try:
         current_time = time.time()
         
+        # SUPER OPTİMİZASYON: Veritabanını yormadan önce RAM'den kontrol et (1 dakikalık spam koruması)
+        if current_time - xp_cooldown_cache.get(user_id, 0) < 60:
+            return False, None
+            
+        xp_cooldown_cache[user_id] = current_time # RAM Cache güncellemesi
+
         user_data = await xp_collection.find_one({"_id": user_id})
         if not user_data:
             user_data = {"_id": user_id, "total": 0, "daily": 0, "weekly": 0, "monthly": 0, "last_msg": 0, "level": 1}
         
-        # 60-Second Cooldown
-        if current_time - user_data.get("last_msg", 0) >= 60:
-            new_total = user_data["total"] + amount
-            new_daily = user_data["daily"] + amount
-            new_weekly = user_data.get("weekly", 0) + amount
-            new_monthly = user_data.get("monthly", 0) + amount
-            new_level = user_data["level"]
+        new_total = user_data["total"] + amount
+        new_daily = user_data.get("daily", 0) + amount
+        new_weekly = user_data.get("weekly", 0) + amount
+        new_monthly = user_data.get("monthly", 0) + amount
+        new_level = user_data["level"]
+        
+        leveled_up = False
+        next_level_xp = new_level * 50
+        
+        if new_total >= next_level_xp:
+            new_level += 1
+            leveled_up = True
             
-            leveled_up = False
-            next_level_xp = new_level * 50
-            
-            if new_total >= next_level_xp:
-                new_level += 1
-                leveled_up = True
-                
-            await xp_collection.update_one(
-                {"_id": user_id},
-                {"$set": {
-                    "total": new_total,
-                    "daily": new_daily,
-                    "weekly": new_weekly,
-                    "monthly": new_monthly,
-                    "last_msg": current_time,
-                    "level": new_level
-                }},
-                upsert=True
-            )
-            return leveled_up, new_level
-        return False, user_data.get("level", 1)
+        await xp_collection.update_one(
+            {"_id": user_id},
+            {"$set": {
+                "total": new_total,
+                "daily": new_daily,
+                "weekly": new_weekly,
+                "monthly": new_monthly,
+                "last_msg": current_time,
+                "level": new_level
+            }},
+            upsert=True
+        )
+        return leveled_up, new_level
+
     except Exception as e:
         print(f"Veritabanı erişim hatası (add_xp): {e}")
-        return False, 1 # Hata olursa varsayılan değer dön, botu çökertme.
+        return False, None
 
 # ==========================================
 # 6. INTERACTIVE DROPDOWN ROLES (GUI VIEW)
@@ -285,7 +304,7 @@ class RolesView(View):
         self.add_item(GPUSelect())
 
 # ==========================================
-# 7. BG LOOP TASKS (SCHEDULER - 30 MINS)
+# 7. BG LOOP TASKS (SCHEDULER)
 # ==========================================
 @tasks.loop(minutes=30)
 async def half_hourly_reminder():
@@ -312,6 +331,38 @@ async def reset_daily_xp():
     except Exception as e:
         print(f"Failed to reset daily XP: {e}")
 
+@tasks.loop(hours=24)
+async def daily_tech_news():
+    """Fetches daily tech news and broadcasts to registered channels."""
+    await bot.wait_until_ready()
+    try:
+        feed = feedparser.parse("https://www.omgubuntu.co.uk/feed")
+        if not feed.entries:
+            return
+            
+        entry = feed.entries[0]
+        embed = discord.Embed(
+            title=f"📰 {entry.title}", 
+            url=entry.link, 
+            description=entry.summary[:500] + "...", 
+            color=discord.Color.teal()
+        )
+        embed.set_footer(text="Daily Linux & Tech Intelligence Network")
+        
+        # Resim bulmaya çalış
+        if "media_content" in entry:
+            embed.set_image(url=entry.media_content[0]["url"])
+
+        configs = await config_collection.find({"news_channel": {"$exists": True}}).to_list(length=100)
+        for conf in configs:
+            guild = bot.get_guild(int(conf["_id"]))
+            if guild:
+                news_channel = guild.get_channel(int(conf["news_channel"]))
+                if news_channel:
+                    await news_channel.send("🚨 **Sistem Taraması Tamamlandı. Günlük Teknoloji Raporu Yüklendi!** 🚨", embed=embed)
+    except Exception as e:
+        print(f"Tech news stream error: {e}")
+
 # ==========================================
 # 8. BOT LIFE-CYCLE & AUTOMATION EVENTS
 # ==========================================
@@ -319,21 +370,77 @@ async def reset_daily_xp():
 async def on_ready():
     print(f'==========================================')
     print(f'🤖 Bot Is Online: {bot.user.name}')
-    print(f'🚀 Engine Status: SYNTAX OK & PRODUCTION READY')
+    print(f'🚀 Engine Status: TERMINATOR EDITION READY')
     print(f'==========================================')
     await bot.change_presence(activity=discord.Game(name="Managing Linux Servers | ?help"))
     half_hourly_reminder.start()
     reset_daily_xp.start()
+    daily_tech_news.start()
     bot.add_view(RolesView())
 
 @bot.event
 async def on_member_join(member):
+    # OTO ROL
     role = member.guild.get_role(USER_ROLE_ID)
     if role:
         try:
             await member.add_roles(role)
         except Exception as e:
             print(f"Auto-role assignment error: {e}")
+
+    # YENİ: EASY-PIL GÖRSEL HOŞGELDİN EKRANI
+    try:
+        guild_config = await config_collection.find_one({"_id": str(member.guild.id)})
+        if guild_config and "join_channel" in guild_config:
+            join_channel = member.guild.get_channel(int(guild_config["join_channel"]))
+            
+            if join_channel:
+                background = Editor(Canvas((800, 250), color="#1e1e2e"))
+                
+                # Terminal UI Tasarımı
+                background.rectangle((0, 0), width=800, height=40, color="#11111b")
+                background.text((20, 10), "root@adminpingu:~# ./accept_connection.sh", font=Font.poppins(size=18), color="#a6e3a1")
+                
+                # Avatar
+                avatar_image = await load_image_async(str(member.display_avatar.url))
+                profile = Editor(avatar_image).resize((150, 150)).circle_image()
+                background.paste(profile, (325, 60))
+                
+                # Yazılar
+                background.text((400, 220), f"NEW ENTITY DETECTED: {member.name.upper()}", font=Font.poppins(variant="bold", size=24), color="#cba6f7", align="center")
+                
+                file = discord.File(fp=background.image_bytes, filename="welcome.png")
+                await join_channel.send(f"🐧 Sunucu altyapısına yeni bir istemci bağlandı: {member.mention}! Güvenli iletişim protokolü başlatıldı.", file=file)
+    except Exception as e:
+        print(f"Join Image Render Error: {e}")
+
+@bot.event
+async def on_member_remove(member):
+    # YENİ: EASY-PIL GÖRSEL VEDA EKRANI
+    try:
+        guild_config = await config_collection.find_one({"_id": str(member.guild.id)})
+        if guild_config and "join_channel" in guild_config:
+            join_channel = member.guild.get_channel(int(guild_config["join_channel"]))
+            
+            if join_channel:
+                background = Editor(Canvas((800, 250), color="#1e1e2e"))
+                
+                # Terminal UI Tasarımı
+                background.rectangle((0, 0), width=800, height=40, color="#11111b")
+                background.text((20, 10), "root@adminpingu:~# sudo kill -9 client_process", font=Font.poppins(size=18), color="#f38ba8")
+                
+                # Avatar
+                avatar_image = await load_image_async(str(member.display_avatar.url))
+                profile = Editor(avatar_image).resize((150, 150)).circle_image()
+                background.paste(profile, (325, 60))
+                
+                # Yazılar
+                background.text((400, 220), f"CONNECTION TERMINATED: {member.name.upper()}", font=Font.poppins(variant="bold", size=24), color="#f38ba8", align="center")
+                
+                file = discord.File(fp=background.image_bytes, filename="goodbye.png")
+                await join_channel.send(f"⚠️ Bir istemcinin bağlantısı kesildi: **{member.name}**. Veri akışı durduruldu.", file=file)
+    except Exception as e:
+        print(f"Remove Image Render Error: {e}")
 
 async def apply_warning(member, reason, guild):
     if member.id not in warning_db:
@@ -392,34 +499,95 @@ async def on_message(message):
             except Exception as e:
                 print(f"Profanity filter error: {e}")
 
-    # OPTİMİZASYON: XP sistemi çökse bile (DB bağlantısı hatası vb.) komutların çalışmasını garanti altına aldık.
+    # OPTİMİZASYON VE XP ZORLAŞTIRMA: %20 oranında daha yavaş (5-10 yerine 4-8 puan)
     try:
-        gained = random.randint(5, 10)
+        gained = random.randint(4, 8) 
         leveled_up, new_level = await add_xp(message.author.id, gained)
         
-        if leveled_up:
+        if leveled_up and new_level:
             level_channel = bot.get_channel(LEVEL_LOG_CHANNEL_ID)
+            epic_channel = bot.get_channel(EPIC_LEVEL_100_CHANNEL)
             
-            if level_channel:
-                await level_channel.send(f"🎉 Congratulations {message.author.mention}! You've reached **Level {new_level}**!")
-                
-            if new_level == 5:
-                media_role = message.guild.get_role(MEDIA_ROLE_ID)
-                if media_role:
-                    await message.author.add_roles(media_role)
-                    if level_channel:
-                        await level_channel.send(f"📸 {message.author.mention} reached level 5 and unlocked **Media Permissions**!")
-    except Exception as e:
-        print(f"XP Sistemi Atlandı: {e}")
+            # Gerekli ROLÜ VER
+            if new_level in LEVEL_ROLES:
+                target_role = message.guild.get_role(LEVEL_ROLES[new_level])
+                if target_role:
+                    await message.author.add_roles(target_role)
 
-    # KOMUTLARI İŞLE - DB yanıt vermese de bu satır artık kesinlikle çalışacak!
+            # ÖZEL LEVEL MESAJLARI (TERMINATOR EDITION)
+            if new_level == 5:
+                await level_channel.send(f"🎉 Congratulations {message.author.mention}, you're now **LEVEL 5**!\n🔓 **Unlocked:** Media Permission")
+                media_role = message.guild.get_role(MEDIA_ROLE_ID)
+                if media_role: await message.author.add_roles(media_role)
+
+            elif new_level == 10:
+                await level_channel.send(f"🎉 Congratulations {message.author.mention}, you're now **LEVEL 10**! System structural upgrade complete.")
+
+            elif new_level == 15:
+                await level_channel.send(f"🎉 Congratulations {message.author.mention}, you're now **LEVEL 15**! Core matrix synchronization optimized.")
+
+            elif new_level == 20:
+                await level_channel.send(f"🎉 Congratulations {message.author.mention}, you're now **LEVEL 20**! Advanced clearance granted.")
+
+            elif new_level == 25:
+                embed = discord.Embed(title="🎖️ DİKKAT: ÜSTÜN HİZMET ONAYI", description=f"Sayın {message.author.mention},\n\nSunucu altyapısına yaptığınız yoğun veri akışı ve kesintisiz bağlantı sadakatiniz tarafımızca takdir edilmiştir. **Seviye 25'e** ulaştığınızı doğrulamaktan onur duyarız. Sistem sizi özel bir birim olarak kaydetti.", color=discord.Color.dark_green())
+                await level_channel.send(embed=embed)
+
+            elif new_level == 50:
+                embed = discord.Embed(title="🔥 UYARI: KRİTİK EŞİK AŞILDI 🔥", description=f"**KİMLİK DOĞRULANDI:** {message.author.mention}\n\nİnanılmaz bir başarı! Sisteminizin işlem hacmi sınırları zorluyor. **Seviye 50'ye** ulaşarak bu sunucunun temel taşlarından biri olduğunuzu kanıtladınız. Yüksek rütbeli donanım entegrasyonunuz tamamlandı. Saygılarımızı sunarız komutan!", color=discord.Color.gold())
+                embed.set_image(url="https://media.giphy.com/media/xUOxfgwY8Tvj1DY5y0/giphy.gif")
+                await level_channel.send(embed=embed)
+
+            elif new_level == 100:
+                msg_content = f"### 👑 GÜVENLİK DUVARLARI YIKILDI: EFSANE DOĞDU! 👑\n\nBütün sunucu node'ları dikkatine! Ağımızdaki en aktif ve kararlı istemcilerden biri olan {message.author.mention}, imkansızı başararak **SEVİYE 100** statüsüne ulaştı!\n\nSenin bu sunucuya kattığın değer, yazdığın her satır kod kadar eşsiz ve kalıcı. Sistem ağacı seni sonsuza kadar bir **EFSANE** olarak hatırlayacak. Otonom yapay zeka çekirdeği bile senin bu azmin karşısında saygıyla eğiliyor. Tebrikler, **Master User**!"
+                await level_channel.send(msg_content)
+                if epic_channel:
+                    await epic_channel.send(msg_content)
+                    
+    except Exception as e:
+        print(f"XP Sistemi Atlandı (Cache Koruması/Hata): {e}")
+
     await bot.process_commands(message)
 
 # ==========================================
 # 9. COMMAND MATRIX (COMPLETELY IN ENGLISH)
 # ==========================================
 
-# --- CONFIG COMMAND ---
+# --- YENİ: CONFIG COMMANDS ---
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def setnewschannel(ctx, channel: discord.TextChannel = None):
+    """Sets a channel for automated daily tech/linux news and locks it."""
+    target_channel = channel or ctx.channel
+    
+    # DB'ye kaydet
+    await config_collection.update_one(
+        {"_id": str(ctx.guild.id)}, 
+        {"$set": {"news_channel": str(target_channel.id)}}, 
+        upsert=True
+    )
+    
+    # Yetkisiz kişilere kitle
+    await target_channel.set_permissions(ctx.guild.default_role, send_messages=False)
+    
+    embed = discord.Embed(title="✅ Haber Ağı Yapılandırıldı", description=f"{target_channel.mention} kanalı başarılı bir şekilde Küresel Teknoloji Haberleri yayını için ayarlandı.\n\n🔒 *Güvenlik Protokolü:* Kanal normal kullanıcılara yazmaya kapatılmıştır.", color=discord.Color.blue())
+    await ctx.send(embed=embed)
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def setjoinchannel(ctx, channel: discord.TextChannel = None):
+    """Sets the channel for visual welcome/goodbye terminal banners."""
+    target_channel = channel or ctx.channel
+    
+    # DB'ye kaydet
+    await config_collection.update_one(
+        {"_id": str(ctx.guild.id)}, 
+        {"$set": {"join_channel": str(target_channel.id)}}, 
+        upsert=True
+    )
+    
+    await ctx.send(f"✅ **Birim Yapılandırıldı:** Giren ve çıkan istemciler artık {target_channel.mention} kanalında görsel bir terminal arayüzü ile karşılanacak.")
+
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def messagesendadminpingu(ctx, channel: discord.TextChannel = None):
@@ -760,7 +928,9 @@ async def help(ctx):
               "`?warning <user> [reason]` - Apply warning registry indices\n"
               "`?ban <user> [reason]` - Purge malicious entities permanently\n"
               "`?unban <id>` - Restore infrastructure privileges access rights\n"
-              "`?ipban <user>` - Emulate a network infrastructure firewall routing ban", 
+              "`?ipban <user>` - Emulate a network infrastructure firewall routing ban\n"
+              "`?setnewschannel` - **[CHANNEL]** Set channel as news channel\n"
+              "`?setjoinchannel` - **[CHANNEL]**Set channel as join channel", 
         inline=False
     )
     
