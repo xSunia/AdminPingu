@@ -7,7 +7,7 @@ import random
 import time
 import datetime
 import os
-import aiohttp  # Added for the weather command
+import aiohttp
 
 # ==========================================
 # 1. RENDER KEEP-ALIVE SYSTEM (FLASK SERVER)
@@ -39,15 +39,14 @@ bot = commands.Bot(command_prefix="?", intents=intents, help_command=None)
 # ==========================================
 # 3. DATA STRUCTURES & CONFIGURATIONS
 # ==========================================
-LOG_CHANNEL_ID = 123456789012345678       # Standard Mod Log Channel ID
-WARNINGS_CHANNEL_ID = 1521880436270301354 # Profanity & Spam Warnings Channel
-LEVEL_LOG_CHANNEL_ID = 1521880096854769785# Level Up Messages Channel
-REMINDER_CHANNEL_ID = 123456789012345678  # Hourly Rule Reminder Channel
+LOG_CHANNEL_ID = 123456789012345678       
+WARNINGS_CHANNEL_ID = 1521880436270301354 
+LEVEL_LOG_CHANNEL_ID = 1521880096854769785
+REMINDER_CHANNEL_ID = 123456789012345678  # Default, can be updated via ?messagesendadminpingu
 
-USER_ROLE_ID = 1510547520273649704        # Auto-role on Join
-MEDIA_ROLE_ID = 1521875919864856714       # Level 20 Media Role
+USER_ROLE_ID = 1510547520273649704        
+MEDIA_ROLE_ID = 1521875919864856714       
 
-# Exactly 75 English Profanities and Slang Terms for Filtering
 PROFANITY_LIST = [
     "fuck", "shit", "bitch", "asshole", "dick", "pussy", "cunt", "bastard", "motherfucker", 
     "wanker", "twat", "nigger", "faggot", "slut", "whore", "crap", "bollocks", "bugger", 
@@ -61,19 +60,24 @@ PROFANITY_LIST = [
 ]
 
 LINUX_COMMANDS = [
-    {"cmd": "ls", "desc": "🐧 Used to list directory contents. It is just like taking a quick look at the items inside a room!"},
-    {"cmd": "cd", "desc": "🐧 Allows you to navigate between directories. It essentially teleports you from one path to another!"},
-    {"cmd": "pwd", "desc": "🐧 Prints the full path of the current working directory."},
-    {"cmd": "sudo", "desc": "🐧 Runs a command with the elevated security privileges of the system administrator 'root'."},
-    {"cmd": "htop", "desc": "🐧 A much sleeker, colorful, and highly interactive modern upgrade to the classic 'top' command!"}
+    {"cmd": "ls", "desc": "Used to list directory contents. It is just like taking a quick look at the items inside a room!"},
+    {"cmd": "cd", "desc": "Allows you to navigate between directories. It essentially teleports you from one path to another!"},
+    {"cmd": "pwd", "desc": "Prints the full path of the current working directory."},
+    {"cmd": "sudo", "desc": "Runs a command with the elevated security privileges of the system administrator 'root'."},
+    {"cmd": "htop", "desc": "A much sleeker, colorful, and highly interactive modern upgrade to the classic 'top' command!"}
 ]
 
 SERVER_RULES = [
-    "Racism, ethnic discrimination, and hate speech of any kind are strictly prohibited.",
-    "Unsolicited advertising, sharing invite links in channels or via DMs without permission is prohibited.",
-    "Excessive swearing, toxic language, and personal insults are strictly prohibited.",
-    "Impersonating another server member, staff member, or bot is strictly prohibited.",
-    "Mass mentioning, spamming, and flooding channels with messages are prohibited."
+    {"title": "Hate Speech and Discrimination", "desc": "Racism, ethnic discrimination, and hate speech of any kind are strictly prohibited.", "penalty": "Permanent Ban"},
+    {"title": "Unsolicited Advertising", "desc": "Sharing advertising or invite links in channels or via DMs without permission is prohibited.", "penalty": "Mute (Timeout)"},
+    {"title": "Harassment and Discrimination", "desc": "Homophobia, sexism, and any discrimination against marginalized groups are strictly prohibited.", "penalty": "Permanent Ban"},
+    {"title": "Disrupting Peace", "desc": "Harassing, provoking, or annoying members, or disrupting personal peace is prohibited.", "penalty": "Warning + Mute"},
+    {"title": "Spreading False Information", "desc": "Spreading fake news or misinformation to manipulate members is prohibited.", "penalty": "Warning"},
+    {"title": "Excessive Trolling", "desc": "Engaging in excessive trolling that derails channel purposes or ruins server peace is prohibited.", "penalty": "Warning + Mute"},
+    {"title": "Toxic Language", "desc": "Excessive swearing, toxic language, and personal insults are strictly prohibited.", "penalty": "Mute"},
+    {"title": "NSFW Content", "desc": "Posting NSFW, 18+ content, gore, or graphic violence is strictly prohibited.", "penalty": "Permanent Ban"},
+    {"title": "Impersonation", "desc": "Impersonating another server member, staff member, or a bot is strictly prohibited.", "penalty": "Warning + Mute"},
+    {"title": "Spam and Flooding", "desc": "Mass mentioning, spamming, and flooding channels with messages are prohibited.", "penalty": "Mute"}
 ]
 
 LINUX_GIFS = [
@@ -84,7 +88,6 @@ LINUX_GIFS = [
     "https://media.tenor.com/V-nF03F5h20AAAAC/linux-arch.gif"
 ]
 
-# New Entertainment & Info Data
 TANK_FACTS = [
     "The British Mark I was the first tank to enter combat during the Battle of the Flers-Courcelette in 1916.",
     "Major General Ernest Swinton is highly credited with the conceptualization of the first armored tracked vehicles.",
@@ -110,7 +113,6 @@ PYTHON_TIPS = [
     "Use `enumerate()` if you need both the index and the value while looping through an iterable."
 ]
 
-# Role Categories
 ALL_DISTRO_ROLES = [
     1521868543799328808, 1521870392472502344, 1521870674669338654, 1521871074994950295, 1521871078308184074,
     1521870173861056655, 1521871399403393044, 1521871679368986655, 1521871896117776468,
@@ -123,7 +125,7 @@ ALL_GPU_ROLES = [1521879270530486414, 1521879224951246928, 1521879315648614410]
 # In-Memory Databases
 xp_db = {}
 warning_db = {}
-user_message_cache = {} # For Spam Protection
+user_message_cache = {} 
 
 # ==========================================
 # 4. HELPER FUNCTIONS & ENGINE
@@ -133,7 +135,6 @@ def add_xp(user_id, amount):
     if user_id not in xp_db:
         xp_db[user_id] = {"total": 0, "daily": 0, "weekly": 0, "monthly": 0, "last_msg": 0, "level": 1}
     
-    # 60-Second Cooldown
     if current_time - xp_db[user_id]["last_msg"] >= 60:
         xp_db[user_id]["total"] += amount
         xp_db[user_id]["daily"] += amount
@@ -141,7 +142,6 @@ def add_xp(user_id, amount):
         xp_db[user_id]["monthly"] += amount
         xp_db[user_id]["last_msg"] = current_time
         
-        # Level Up Algorithm (Harder Curve: 50 XP per level requirement, low gain makes it take hours)
         current_xp = xp_db[user_id]["total"]
         next_level_xp = xp_db[user_id]["level"] * 50
         if current_xp >= next_level_xp:
@@ -163,13 +163,12 @@ class DistroSelect(Select):
         if not role:
             return await interaction.response.send_message("❌ Role not found on the server!", ephemeral=True)
             
-        # Check and remove existing distro roles
         roles_to_remove = [r for r in interaction.user.roles if r.id in ALL_DISTRO_ROLES and r.id != selected_role_id]
         if roles_to_remove:
             await interaction.user.remove_roles(*roles_to_remove)
             
         await interaction.user.add_roles(role)
-        await interaction.response.send_message(f"✅ You have successfully claimed the `{role.name}` role! (Previous distro role removed)", ephemeral=True)
+        await interaction.response.send_message(f"✅ You have successfully claimed the `{role.name}` role!", ephemeral=True)
 
 class GPUSelect(Select):
     def __init__(self):
@@ -187,19 +186,17 @@ class GPUSelect(Select):
         if not role:
             return await interaction.response.send_message("❌ Role not found on the server!", ephemeral=True)
             
-        # Check and remove existing GPU roles
         roles_to_remove = [r for r in interaction.user.roles if r.id in ALL_GPU_ROLES and r.id != selected_role_id]
         if roles_to_remove:
             await interaction.user.remove_roles(*roles_to_remove)
             
         await interaction.user.add_roles(role)
-        await interaction.response.send_message(f"✅ You have successfully claimed the `{role.name}` driver role! (Previous GPU role removed)", ephemeral=True)
+        await interaction.response.send_message(f"✅ You have successfully claimed the `{role.name}` driver role!", ephemeral=True)
 
 class RolesView(View):
     def __init__(self):
         super().__init__(timeout=None)
         
-        # 1. Arch / Arch-based
         arch_opts = [
             discord.SelectOption(label="Arch Linux", value="1521868543799328808"),
             discord.SelectOption(label="Manjaro", value="1521870392472502344"),
@@ -209,7 +206,6 @@ class RolesView(View):
         ]
         self.add_item(DistroSelect(placeholder="Arch / Arch-based", options=arch_opts, custom_id="arch_menu"))
         
-        # 2. Debian / Debian-based
         debian_opts = [
             discord.SelectOption(label="Debian", value="1521870173861056655"),
             discord.SelectOption(label="Kali Linux", value="1521871399403393044"),
@@ -218,7 +214,6 @@ class RolesView(View):
         ]
         self.add_item(DistroSelect(placeholder="Debian / Debian-based", options=debian_opts, custom_id="debian_menu"))
 
-        # 3. Ubuntu / Ubuntu-based
         ubuntu_opts = [
             discord.SelectOption(label="Ubuntu", value="1521870110552227910"),
             discord.SelectOption(label="Linux Mint", value="1521868791942742026"),
@@ -228,7 +223,6 @@ class RolesView(View):
         ]
         self.add_item(DistroSelect(placeholder="Ubuntu / Ubuntu-based", options=ubuntu_opts, custom_id="ubuntu_menu"))
 
-        # 4. Independent
         indep_opts = [
             discord.SelectOption(label="Gentoo", value="1521870225228955798"),
             discord.SelectOption(label="Nobara", value="1521872173688422420"),
@@ -241,24 +235,27 @@ class RolesView(View):
             discord.SelectOption(label="Slackware", value="1521873129868365964")
         ]
         self.add_item(DistroSelect(placeholder="Independent", options=indep_opts, custom_id="indep_menu"))
-
-        # 5. Graphics Driver
         self.add_item(GPUSelect())
 
 # ==========================================
-# 6. BG LOOP TASKS (SCHEDULER)
+# 6. BG LOOP TASKS (SCHEDULER - 30 MINS)
 # ==========================================
-@tasks.loop(minutes=60)
-async def hourly_reminder():
+@tasks.loop(minutes=30)
+async def half_hourly_reminder():
     await bot.wait_until_ready()
+    global REMINDER_CHANNEL_ID
     channel = bot.get_channel(REMINDER_CHANNEL_ID)
     if channel:
-        chosen_rule = random.choice(SERVER_RULES)
+        rule = random.choice(SERVER_RULES)
         embed = discord.Embed(
-            title="🐧 AdminPingu Hourly Rule Reminder",
-            description=f"It is my absolute duty to maintain order and remind you of our server rules!\n\n**Always Remember:** {chosen_rule}",
-            color=discord.Color.dark_teal()
+            title="🐧 AdminPingu Automated Security Reminder",
+            description=f"To protect system integrity, here is a core directive validation:\n\n"
+                        f"🔹 **Rule:** {rule['title']}\n"
+                        f"📝 **Details:** {rule['desc']}\n"
+                        f"⚡ **Penalty:** `{rule['penalty']}`",
+            color=discord.Color.red()
         )
+        embed.set_footer(text="AdminPingu System Protection Protocol Active.")
         await channel.send(embed=embed)
 
 @tasks.loop(hours=24)
@@ -276,13 +273,12 @@ async def on_ready():
     print(f'🚀 Engine Status: SYNTAX OK & PRODUCTION READY')
     print(f'==========================================')
     await bot.change_presence(activity=discord.Game(name="Managing Linux Servers | ?help"))
-    hourly_reminder.start()
+    half_hourly_reminder.start()
     reset_daily_xp.start()
-    bot.add_view(RolesView()) # Make view persistent
+    bot.add_view(RolesView())
 
 @bot.event
 async def on_member_join(member):
-    # Auto-role assigned on join
     role = member.guild.get_role(USER_ROLE_ID)
     if role:
         try:
@@ -308,7 +304,7 @@ async def apply_warning(member, reason, guild):
         try:
             await member.ban(reason="Automated Ban - Exceeded 3 Active Warnings Limit.")
             if warn_channel:
-                await warn_channel.send(f"🚨 {member.mention} has been banned from the server for exceeding the 3-warning limit!")
+                await warn_channel.send(f"🚨 {member.mention} has been permanently banned for exceeding the 3-warning limit!")
             warning_db[member.id] = 0
         except:
             pass
@@ -318,9 +314,9 @@ async def on_message(message):
     if message.author == bot.user or message.author.bot:
         return
 
-    # A. SPAM FILTER (Exempts Mods and Admins)
     is_mod = message.author.guild_permissions.manage_messages
     if not is_mod:
+        # SPAM FILTER
         if message.author.id not in user_message_cache:
             user_message_cache[message.author.id] = []
         
@@ -333,21 +329,20 @@ async def on_message(message):
             await message.delete()
             await message.channel.send(f"⚠️ {message.author.mention}, please stop spamming!", delete_after=5)
             await apply_warning(message.author, "Spam / Flooding the chat", message.guild)
-            user_message_cache[message.author.id] = [] # Clear cache
+            user_message_cache[message.author.id] = [] 
             return
 
-    # B. PROFANITY FILTER
-    msg_content = message.content.lower()
-    if any(word in msg_content for word in PROFANITY_LIST):
-        try:
-            await message.delete()
-            await message.channel.send(f"Hey {message.author.mention}, swearing is strictly prohibited on this server!", delete_after=5)
-            await apply_warning(message.author, f"Profanity used: ||{message.content}||", message.guild)
-            return  # Cancel XP gain
-        except Exception as e:
-            print(f"Profanity filter error: {e}")
+        # PROFANITY FILTER
+        msg_content = message.content.lower()
+        if any(word in msg_content for word in PROFANITY_LIST):
+            try:
+                await message.delete()
+                await message.channel.send(f"Hey {message.author.mention}, swearing is strictly prohibited!", delete_after=5)
+                await apply_warning(message.author, f"Profanity filtering system trigger.", message.guild)
+                return  
+            except Exception as e:
+                print(f"Profanity filter error: {e}")
 
-    # C. XP ENGINE TRIGGER (Very Slow XP Gain: 5 to 10 XP)
     gained = random.randint(5, 10)
     leveled_up = add_xp(message.author.id, gained)
     if leveled_up:
@@ -355,190 +350,364 @@ async def on_message(message):
         level_channel = bot.get_channel(LEVEL_LOG_CHANNEL_ID)
         
         if level_channel:
-            await level_channel.send(f"🎉 Congratulations {message.author.mention}! You've reached **Level {new_level}** by chatting!")
+            await level_channel.send(f"🎉 Congratulations {message.author.mention}! You've reached **Level {new_level}**!")
             
-        # Media Permission Check
         if new_level == 20:
             media_role = message.guild.get_role(MEDIA_ROLE_ID)
             if media_role:
                 await message.author.add_roles(media_role)
                 if level_channel:
-                    await level_channel.send(f"📸 {message.author.mention} has reached level 20 and earned the **Media Permission** role!")
+                    await level_channel.send(f"📸 {message.author.mention} reached level 20 and unlocked **Media Permissions**!")
 
     await bot.process_commands(message)
 
 # ==========================================
-# 8. COMMAND MATRIX
+# 8. COMMAND MATRIX (COMPLETELY IN ENGLISH)
 # ==========================================
+
+# --- CONFIG COMMAND ---
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def messagesendadminpingu(ctx, channel: discord.TextChannel = None):
+    """Sets the channel for half-hourly rule reminders."""
+    global REMINDER_CHANNEL_ID
+    target_channel = channel or ctx.channel
+    REMINDER_CHANNEL_ID = target_channel.id
+    await ctx.send(f"✅ **Success:** AdminPingu automated rules will now be broadcasted to {target_channel.mention} every 30 minutes.")
+
+# --- ADMINISTRATIVE ROOT OPERATIONS ---
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def roles(ctx):
     """Prints the Dropdown Role Selection panel."""
     role_embed = discord.Embed(
         title="Choose Your Primary Distro & Graphics Driver", 
-        description="Use the menus below to select your primary Linux distribution and GPU driver. You can only have 1 role per category.", 
+        description="Use the menus below to select your configurations. Max 1 role per category.", 
         color=discord.Color.dark_theme()
     )
     await ctx.send(embed=role_embed, view=RolesView())
 
 @bot.command()
+@commands.has_permissions(manage_channels=True)
+async def sudolock(ctx):
+    """Locks down the current text channel."""
+    await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=False)
+    embed = discord.Embed(
+        title="🔒 Administrative Channel Lockdown Initiated",
+        description=f"This channel has been successfully locked by root permissions ({ctx.author.mention}).",
+        color=discord.Color.red()
+    )
+    await ctx.send(embed=embed)
+
+@bot.command()
+@commands.has_permissions(manage_channels=True)
+async def sudounlock(ctx):
+    """Unlocks the current text channel."""
+    await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=None)
+    embed = discord.Embed(
+        title="🔓 Administrative Channel Lockdown Revoked",
+        description=f"This channel has been completely unlocked by root permissions ({ctx.author.mention}).",
+        color=discord.Color.green()
+    )
+    await ctx.send(embed=embed)
+
+@bot.command()
+@commands.has_permissions(moderate_members=True)
+async def mute(ctx, member: discord.Member, hours: int = 1, *, reason="No reason specified"):
+    """Silences a user with a customized timeout duration."""
+    duration = datetime.timedelta(hours=hours)
+    try:
+        await member.timeout(duration, reason=reason)
+        embed = discord.Embed(title="🤫 User Muted Successfully", color=discord.Color.orange())
+        embed.add_field(name="Target Entity", value=member.mention, inline=True)
+        embed.add_field(name="Duration", value=f"`{hours} Hours`", inline=True)
+        embed.add_field(name="Reason", value=f"`{reason}`", inline=False)
+        await ctx.send(embed=embed)
+    except Exception as e:
+        await ctx.send(f"❌ **System Failure:** Unable to apply structural timeout. Reason: {e}")
+
+@bot.command()
+@commands.has_permissions(moderate_members=True)
+async def unmute(ctx, member: discord.Member):
+    """Lifts an active timeout structural restriction from a user."""
+    try:
+        await member.timeout(None)
+        await ctx.send(f"✅ **Success:** Mute restriction lifted from user {member.mention}.")
+    except Exception as e:
+        await ctx.send(f"❌ **System Failure:** Could not remove restriction. Reason: {e}")
+
+@bot.command()
+@commands.has_permissions(kick_members=True)
+async def warning(ctx, member: discord.Member, *, reason="Manual Override Warning"):
+    """Adds a system manual warning mark."""
+    await apply_warning(member, reason, ctx.guild)
+    await ctx.send(f"✅ Warning tracking successfully loaded for {member.mention}.")
+
+@bot.command()
+@commands.has_permissions(ban_members=True)
+async def ban(ctx, member: discord.Member, *, reason="No structural reason specified"):
+    """Bans a target member from the infrastructure server."""
+    await member.ban(reason=reason)
+    await ctx.send(f"🔨 **Banned Entity:** `{member.name}` has been banned. Reason: `{reason}`")
+
+@bot.command()
+@commands.has_permissions(ban_members=True)
+async def unban(ctx, user_id: int):
+    """Revokes an existing global user infrastructure ban."""
+    try:
+        user = await bot.fetch_user(user_id)
+        await ctx.guild.unban(user)
+        await ctx.send(f"✅ **Success:** Infrastructure access ban lifted for user: `{user.name}` ({user_id}).")
+    except discord.NotFound:
+        await ctx.send("❌ **Error:** Target ban index registry not found.")
+    except Exception as e:
+        await ctx.send(f"❌ **Error:** Operation aborted. Details: {e}")
+
+@bot.command()
+@commands.has_permissions(ban_members=True)
+async def ipban(ctx, member: discord.Member):
+    """Simulated structural network IP level ban execution sequence."""
+    mock_ip = f"{random.randint(12, 192)}.{random.randint(10, 255)}.{random.randint(0, 255)}.{random.randint(1, 254)}"
+    embed = discord.Embed(title="⚡ Automated Deep Network IP-Ban Simulation Sequence", color=discord.Color.purple())
+    embed.add_field(name="Target Virtual Machine", value=member.mention, inline=True)
+    embed.add_field(name="Intercepted Gateway Route", value=f"`{mock_ip}`", inline=True)
+    embed.add_field(name="Firewall Status", value="`Dropping all active sessions packet streams...`", inline=False)
+    await ctx.send(embed=embed)
+
+# --- SYSTEM EXPERIENCE ANALYTICS ---
+@bot.command()
 async def stats(ctx, member: discord.Member = None):
-    """Displays user level card."""
+    """Displays highly detailed user level card analytics with an automated progress bar."""
     member = member or ctx.author
     if member.id not in xp_db:
         xp_db[member.id] = {"total": 0, "daily": 0, "weekly": 0, "monthly": 0, "level": 1, "last_msg": 0}
         
     data = xp_db[member.id]
     next_xp = data["level"] * 50
+    current_xp = data["total"]
     
-    embed = discord.Embed(title=f"📊 {member.name}'s Server Statistics", color=discord.Color.purple())
+    # Progress bar calculation
+    percentage = min(current_xp / next_xp, 1.0)
+    bar_length = 10
+    filled_blocks = int(percentage * bar_length)
+    empty_blocks = bar_length - filled_blocks
+    progress_bar = "█" * filled_blocks + "░" * empty_blocks
+
+    embed = discord.Embed(title=f"📊 {member.name}'s Core Matrix Analytics", color=discord.Color.purple())
     embed.set_thumbnail(url=member.display_avatar.url)
-    embed.add_field(name="Current Level", value=f"`Level {data['level']}`", inline=True)
-    embed.add_field(name="Total XP", value=f"`{data['total']} / {next_xp} XP`", inline=True)
+    embed.add_field(name="System Rank Access", value=f"`Level {data['level']}`", inline=True)
+    embed.add_field(name="Experience Stream Index", value=f"`{current_xp} / {next_xp} XP`", inline=True)
+    embed.add_field(name="Matrix Calibration Progress", value=f"`[{progress_bar}] {int(percentage * 100)}%`", inline=False)
     await ctx.send(embed=embed)
 
 @bot.command()
-@commands.has_permissions(kick_members=True)
-async def warning(ctx, member: discord.Member, *, reason="Manual Warning"):
-    """Adds a manual warning to a user."""
-    await apply_warning(member, reason, ctx.guild)
-    await ctx.send(f"✅ A warning has been issued to {member.mention}. Details have been sent to the warnings channel.")
-
-@bot.command()
-@commands.has_permissions(ban_members=True)
-async def ban(ctx, member: discord.Member, *, reason=None):
-    """Bans a member from the server."""
-    await member.ban(reason=reason)
-    await ctx.send(f"🔨 {member.name} has been successfully banned. Reason: {reason if reason else 'Not specified'}")
-
-# --- 12 NEW FUN & INFO COMMANDS ---
-
-@bot.command()
-async def weather(ctx, *, city: str = "Izmir"):
-    """Fetches text-based weather for a given city."""
-    async with aiohttp.ClientSession() as session:
-        # Using wttr.in with format=3 (location, weather icon, temperature)
-        async with session.get(f'https://wttr.in/{city}?format=3') as resp:
-            if resp.status == 200:
-                text = await resp.text()
-                await ctx.send(f"🌤️ **Weather Report:** `{text.strip()}`")
-            else:
-                await ctx.send("❌ Could not fetch weather data right now. Try again later.")
-
-@bot.command()
-async def tankfact(ctx):
-    """Sends a random WW1/WW2 tank fact."""
-    fact = random.choice(TANK_FACTS)
-    embed = discord.Embed(title="🪖 Historical Tank Fact", description=fact, color=discord.Color.dark_gray())
+async def leaderstats(ctx):
+    """Lists the top 15 highest-ranked matrix members."""
+    if not xp_db:
+        return await ctx.send("❌ **Error:** Structural database empty. No records tracked yet.")
+        
+    sorted_users = sorted(xp_db.items(), key=lambda x: x[1]['total'], reverse=True)[:15]
+    leaderboard_str = ""
+    
+    for index, (user_id, stats_data) in enumerate(sorted_users, start=1):
+        user_obj = ctx.guild.get_member(user_id)
+        name = user_obj.name if user_obj else f"Unknown User ({user_id})"
+        leaderboard_str += f"`#{index:02}` **{name}** - Level {stats_data['level']} ({stats_data['total']} XP)\n"
+        
+    embed = discord.Embed(title="🏆 Server Communication Matrix - Top 15 Leaderboard", description=leaderboard_str, color=discord.Color.gold())
     await ctx.send(embed=embed)
 
-@bot.command()
-async def mmafact(ctx):
-    """Sends a random MMA/UFC fact."""
-    fact = random.choice(MMA_FACTS)
-    embed = discord.Embed(title="🥊 MMA & Combat Sports Fact", description=fact, color=discord.Color.red())
-    await ctx.send(embed=embed)
-
-@bot.command()
-async def pythontip(ctx):
-    """Sends a random Python programming tip."""
-    tip = random.choice(PYTHON_TIPS)
-    embed = discord.Embed(title="🐍 Daily Python Tip", description=tip, color=discord.Color.gold())
-    await ctx.send(embed=embed)
-
-@bot.command()
-async def tea(ctx, member: discord.Member = None):
-    """Serves a nice virtual cup of Sri Lankan tea."""
-    member = member or ctx.author
-    await ctx.send(f"☕ {member.mention}, here is a freshly brewed cup of strong, unsweetened Sri Lankan tea for you. Enjoy!")
-
-@bot.command()
-async def ping(ctx):
-    """Shows the bot's latency."""
-    latency = round(bot.latency * 1000)
-    await ctx.send(f"🏓 Pong! Latency is `{latency}ms`.")
-
-@bot.command()
-async def serverinfo(ctx):
-    """Displays information about the server."""
-    guild = ctx.guild
-    embed = discord.Embed(title=f"🏰 {guild.name} Server Info", color=discord.Color.blue())
-    embed.add_field(name="Server ID", value=f"`{guild.id}`", inline=True)
-    embed.add_field(name="Member Count", value=f"`{guild.member_count}`", inline=True)
-    embed.add_field(name="Created On", value=f"`{guild.created_at.strftime('%Y-%m-%d')}`", inline=True)
-    await ctx.send(embed=embed)
-
-@bot.command()
-async def avatar(ctx, member: discord.Member = None):
-    """Displays a user's avatar."""
-    member = member or ctx.author
-    embed = discord.Embed(title=f"🖼️ {member.name}'s Avatar", color=discord.Color.dark_magenta())
-    embed.set_image(url=member.display_avatar.url)
-    await ctx.send(embed=embed)
-
-@bot.command()
-async def coinflip(ctx):
-    """Flips a coin."""
-    choices = ["Heads", "Tails"]
-    result = random.choice(choices)
-    await ctx.send(f"🪙 You flipped a coin and got: **{result}**")
-
-@bot.command()
-async def diceroll(ctx, sides: int = 6):
-    """Rolls a dice with the given number of sides."""
-    if sides < 2:
-        return await ctx.send("❌ A dice needs at least 2 sides!")
-    result = random.randint(1, sides)
-    await ctx.send(f"🎲 You rolled a `{sides}`-sided dice and got: **{result}**")
-
-@bot.command(name="8ball")
-async def magic_ball(ctx, *, question: str):
-    """Answers a yes/no question."""
-    responses = [
-        "It is certain.", "Without a doubt.", "Yes, definitely.", 
-        "Ask again later.", "Cannot predict now.", 
-        "Don't count on it.", "My sources say no.", "Very doubtful."
-    ]
-    await ctx.send(f"🎱 **Question:** {question}\n**Answer:** {random.choice(responses)}")
-
-@bot.command()
-async def joke(ctx):
-    """Sends a random programming/tech joke."""
-    joke_text = random.choice(TECH_JOKES)
-    await ctx.send(f"😂 {joke_text}")
-
+# --- LINUX TERMINAL FUN CORE ---
 @bot.command()
 async def randomlinux(ctx):
-    """Random terminal command."""
+    """Teaches a random core system terminal command architecture instruction."""
     selected = random.choice(LINUX_COMMANDS)
     embed = discord.Embed(
-        title=f"🐧 Linux Terminal Library",
-        description=f"**Command:** `{selected['cmd']}`\n\n**Description:** {selected['desc']}",
+        title=f"🐧 Linux System Engine Terminal Documentation",
+        description=f"📁 **Command Instruction:** `{selected['cmd']}`\n\n💡 **Operation Metric:** {selected['desc']}",
         color=discord.Color.blue()
     )
     await ctx.send(embed=embed)
 
 @bot.command()
-async def gif(ctx):
-    """Sends a random Linux meme or gif."""
-    gif_url = random.choice(LINUX_GIFS)
-    embed = discord.Embed(title="🐧 Random Linux Meme/Gif", color=discord.Color.green())
-    embed.set_image(url=gif_url)
+async def whoami(ctx):
+    """Runs a simulated authentication core signature scan sequence validation."""
+    roles_list = [r.name for r in ctx.author.roles if r.name != "@everyone"]
+    roles_str = ", ".join(roles_list) if roles_list else "No assigned functional roles."
+    
+    embed = discord.Embed(title="💻 Root Authentication Verification System: whoami", color=discord.Color.dark_grey())
+    embed.add_field(name="Current Secure Shell Identity", value=f"`{ctx.author.name}#{ctx.author.discriminator}`", inline=True)
+    embed.add_field(name="Host Unique Sequence UID ID", value=f"`{ctx.author.id}`", inline=True)
+    embed.add_field(name="Infrastructural Nodes Permissions Base", value=f"`Admin: {ctx.author.guild_permissions.administrator}`", inline=True)
+    embed.add_field(name="Active Network Security Cleared Groups", value=f"```text\n{roles_str}```", inline=False)
+    await ctx.send(embed=embed)
+
+# --- THE WEATHER ENDPOINT OPTIMIZATION MIGRATION ---
+@bot.command()
+async def weather(ctx, *, city: str = ""):
+    """Fetches text-based weather analytics. Correctly rejects blank executions."""
+    if not city.strip():
+        await ctx.send("❌ **Error:** No city selected! Please specify a location (e.g., `?weather London`).")
+        return
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f'https://wttr.in/{city}?format=3') as resp:
+            if resp.status == 200:
+                text = await resp.text()
+                await ctx.send(f"🌤️ **Weather Report:** `{text.strip()}`")
+            else:
+                await ctx.send("❌ **System Fault:** Could not fetch standard weather telemetry array metrics right now.")
+
+# --- COMPREHENSIVE FUN & UTILITY CORE UTILITIES ---
+@bot.command()
+async def tankfact(ctx):
+    """Sends historical tank fact metrics."""
+    fact = random.choice(TANK_FACTS)
+    embed = discord.Embed(title="🪖 Historical Heavy Armored Core Fact", description=fact, color=discord.Color.dark_gray())
     await ctx.send(embed=embed)
 
 @bot.command()
+async def mmafact(ctx):
+    """Sends combat sports technical trivia metrics."""
+    fact = random.choice(MMA_FACTS)
+    embed = discord.Embed(title="🥊 Combat Athletics & MMA Protocol Fact", description=fact, color=discord.Color.red())
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def pythontip(ctx):
+    """Provides professional modern python compiler syntax tips."""
+    tip = random.choice(PYTHON_TIPS)
+    embed = discord.Embed(title="🐍 Core Python Programming Guideline Directive", description=tip, color=discord.Color.gold())
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def tea(ctx, member: discord.Member = None):
+    """Serves high quality virtual cup of unsweetened Sri Lankan tea."""
+    member = member or ctx.author
+    await ctx.send(f"☕ {member.mention}, here is a freshly brewed cup of strong, unsweetened Sri Lankan tea for you. Enjoy the warmth!")
+
+@bot.command()
+async def ping(ctx):
+    """Validates frame array link socket execution latencies."""
+    latency = round(bot.latency * 1000)
+    await ctx.send(f"🏓 Pong! Global Gateway Socket Network Latency is `{latency}ms`.")
+
+@bot.command()
+async def serverinfo(ctx):
+    """Displays standard host node metrics array specs details."""
+    guild = ctx.guild
+    embed = discord.Embed(title=f"🏰 {guild.name} Node Registry Details", color=discord.Color.blue())
+    embed.add_field(name="Infrastructure Hash Unique ID", value=f"`{guild.id}`", inline=True)
+    embed.add_field(name="Registered Active User Entities", value=f"`{guild.member_count}`", inline=True)
+    embed.add_field(name="Initialization Timestamp Date", value=f"`{guild.created_at.strftime('%Y-%m-%d')}`", inline=True)
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def avatar(ctx, member: discord.Member = None):
+    """Fetches high resolution display user graphics asset frame."""
+    member = member or ctx.author
+    embed = discord.Embed(title=f"🖼️ Display Node Target User Asset Reference: {member.name}", color=discord.Color.dark_magenta())
+    embed.set_image(url=member.display_avatar.url)
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def coinflip(ctx):
+    """Random coin outcome selection algorithm generator execution."""
+    choices = ["Heads", "Tails"]
+    await ctx.send(f"🪙 Execution sequence complete. Outcome: **{random.choice(choices)}**")
+
+@bot.command()
+async def diceroll(ctx, sides: int = 6):
+    """Calculates numerical randomness distributions matrix bound arrays limits."""
+    if sides < 2:
+        return await ctx.send("❌ **Error Matrix Fault:** Minimum dimensional matrix requires at least 2 coordinate facets!")
+    await ctx.send(f"🎲 Vector calculated on a `{sides}`-sided polyhedral module matrix. Result: **{random.randint(1, sides)}**")
+
+@bot.command(name="8ball")
+async def magic_ball(ctx, *, question: str):
+    """Evaluates question parameters query strings to random probability matrix outputs."""
+    responses = [
+        "It is certain.", "Without a doubt.", "Yes, definitely.", 
+        "Ask again later.", "Cannot predict now.", 
+        "Don't count on it.", "My sources say no.", "Very doubtful."
+    ]
+    await ctx.send(f"🎱 **Evaluated Metric Query:** {question}\n**Matrix System Probability Response Output:** {random.choice(responses)}")
+
+@bot.command()
+async def joke(ctx):
+    """Returns random tech development string jokes."""
+    await ctx.send(f"😂 {random.choice(TECH_JOKES)}")
+
+@bot.command()
+async def gif(ctx):
+    """Displays random penguin graphics data asset frames."""
+    embed = discord.Embed(title="🐧 Selected System Environment Asset Render Graphic", color=discord.Color.green())
+    embed.set_image(url=random.choice(LINUX_GIFS))
+    await ctx.send(embed=embed)
+
+# --- UNIFIED GLOBAL OVERVIEW HELP MANIFEST ---
+@bot.command()
 async def help(ctx):
-    """Displays all available commands."""
-    embed = discord.Embed(title="🐧 AdminPingu Commands Overview", color=discord.Color.dark_green())
+    """Displays an extensive, beautifully categorized overview of all commands."""
+    embed = discord.Embed(
+        title="🐧 AdminPingu Total Master System Infrastructure Manual Overview", 
+        description="Comprehensive list of modules and kernel execution sequences. All processes are fully active.",
+        color=discord.Color.dark_green()
+    )
     
-    embed.add_field(name="🛡️ Moderation", value="`?warning <user>`\n`?ban <user>`", inline=True)
-    embed.add_field(name="📊 Analytics & Setup", value="`?stats [user]`\n`?roles` (Admin)\n`?serverinfo`", inline=True)
-    embed.add_field(name="🐧 Linux & Tech", value="`?randomlinux`\n`?gif`\n`?pythontip`\n`?joke`", inline=True)
-    embed.add_field(name="🎲 Fun & Games", value="`?coinflip`\n`?diceroll [sides]`\n`?8ball <question>`", inline=True)
-    embed.add_field(name="🌍 Info & Culture", value="`?weather [city]`\n`?tankfact`\n`?mmafact`\n`?tea`", inline=True)
-    embed.add_field(name="🛠️ Utility", value="`?ping`\n`?avatar [user]`\n`?help`", inline=True)
+    embed.add_field(
+        name="🛡️ Administrative Root Operations", 
+        value="`?roles` - Deployment configuration dashboard\n"
+              "`?sudolock` - Lockdown local texting channels\n"
+              "`?sudounlock` - Open locked down channel lanes\n"
+              "`?mute <user> [h]` - Silence entity via structural timeout\n"
+              "`?unmute <user>` - Lift channel silences restrictions\n"
+              "`?warning <user> [reason]` - Apply warning registry indices\n"
+              "`?ban <user> [reason]` - Purge malicious entities permanently\n"
+              "`?unban <id>` - Restore infrastructure privileges access rights\n"
+              "`?ipban <user>` - Emulate a network infrastructure firewall routing ban", 
+        inline=False
+    )
     
-    embed.set_footer(text="Parameters in [brackets] are optional, <angle brackets> are required.")
+    embed.add_field(
+        name="📊 Analytics & Setup Configuration Metrics", 
+        value="`?stats [user]` - Visual representation metric ranking database profiles\n"
+              "`?leaderstats` - Output communication ranking list leaderboards\n"
+              "`?serverinfo` - Display underlying active local machine frame details\n"
+              "`?messagesendadminpingu` - Configure specific reminder target channels", 
+        inline=False
+    )
+    
+    embed.add_field(
+        name="🐧 Linux Terminal Fun Core & Tech Library Modules", 
+        value="`?randomlinux` - Pull random manual operating instructions logs\n"
+              "`?whoami` - Fetch secure shell structural identity matrix credentials\n"
+              "`?pythontip` - Generate code optimization standard recommendations\n"
+              "`?joke` - Retrieve random text programming joke lines\n"
+              "`?gif` - Output random animated system graphic visual assets", 
+        inline=False
+    )
+    
+    embed.add_field(
+        name="🌍 Info, Culture & Entertainment Nodes", 
+        value="`?weather <city>` - Output real-time location forecasting telemetry\n"
+              "`?tankfact` - Read heavy ground vehicular historically loaded logs\n"
+              "`?mmafact` - Render athletic combat tournament history files\n"
+              "`?tea` - Brew high quality virtual cup samples allocations", 
+        inline=False
+    )
+    
+    embed.add_field(
+        name="🎲 Fun, Randomization Games & Utilities Array", 
+        value="`?coinflip` - Run binary heads or tails randomization streams\n"
+              "`?diceroll [sides]` - Return dynamic value from target multi-sided geometry dice\n"
+              "`?8ball <question>` - Ask systemic future prediction evaluations questions\n"
+              "`?ping` - Check socket communication performance latency frames\n"
+              "`?avatar [user]` - Isolate high resolution user graphics imagery profiles", 
+        inline=False
+    )
+    
+    embed.set_footer(text="Parameters in [brackets] are optional, <angle brackets> are structurally required variables.")
     await ctx.send(embed=embed)
 
 # ==========================================
@@ -547,9 +716,9 @@ async def help(ctx):
 @bot.listen()
 async def on_command_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ **ERROR: You lack the necessary privileges!**")
+        await ctx.send("❌ **Access Denied:** You lack the necessary root system permissions required to execute this command structure!")
     elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(f"❌ **ERROR: Missing argument parameters! Try typing `?help`**")
+        await ctx.send(f"❌ **Syntax Error:** Missing mandatory argument values! Consult structural guides via `?help` command sequences.")
     else:
         print(f"Unhandled system error: {error}")
 
