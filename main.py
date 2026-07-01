@@ -8,7 +8,9 @@ import time
 import datetime
 import os
 import aiohttp
-import asyncio  # Added for 2-step verification timeout handling
+import asyncio
+import certifi # OPTİMİZASYON: Bulut/Linux sunucularda MongoDB SSL hatalarını önlemek için eklendi.
+from motor.motor_asyncio import AsyncIOMotorClient
 
 # ==========================================
 # 1. RENDER KEEP-ALIVE SYSTEM (FLASK SERVER)
@@ -43,7 +45,7 @@ bot = commands.Bot(command_prefix="?", intents=intents, help_command=None)
 LOG_CHANNEL_ID = 123456789012345678       
 WARNINGS_CHANNEL_ID = 1521880436270301354 
 LEVEL_LOG_CHANNEL_ID = 1521880096854769785
-REMINDER_CHANNEL_ID = 123456789012345678  # Default, can be updated via ?messagesendadminpingu
+REMINDER_CHANNEL_ID = 123456789012345678  
 
 USER_ROLE_ID = 1510547520273649704        
 MEDIA_ROLE_ID = 1521875919864856714       
@@ -119,39 +121,68 @@ ALL_DISTRO_ROLES = [
     1521870173861056655, 1521871399403393044, 1521871679368986655, 1521871896117776468,
     1521870110552227910, 1521868791942742026, 1521871613958819860, 1521871816321404969, 1521872016901406720,
     1521870225228955798, 1521872173688422420, 1521872360393670819, 1521872534117679206, 1521872635968098344,
-    1521872683803873432, 1521872759691542588, 1521873026776301608, 1521873129868365964
+    1521872683803873432, 1521872759691542588, 1521873026776301608, 1521873129868365964,
+    1521909235594825941, 1521909235594825999 # Added Windows 11 & FreeBSD placeholder
 ]
 ALL_GPU_ROLES = [1521879270530486414, 1521879224951246928, 1521879315648614410]
 
-# In-Memory Databases
-xp_db = {}
+# ==========================================
+# 4. MONGODB DATABASE SETUP (OPTIMIZED & CONNECTED)
+# ==========================================
+# Girdiğin URI adresi eklendi. Gelecekte güvenliğini artırmak istersen ENV (os.environ.get) kullanmaya devam edebilirsin.
+MONGO_URI = os.environ.get("MONGO_URI", "mongodb+srv://sunia3844_db_user:zEOl0Au1bkjAZNFo@cluster0.wihgnrw.mongodb.net/?appName=Cluster0")
+
+# Bulut (Render) veya Linux ortamlarında SSL/TLS hatalarını (ServerSelectionTimeoutError) tamamen çözmek için certifi.where() eklendi.
+mongo_client = AsyncIOMotorClient(MONGO_URI, tlsCAFile=certifi.where())
+db = mongo_client["AdminPinguDB"]
+xp_collection = db["users_xp"]
+
 warning_db = {}
 user_message_cache = {} 
 
 # ==========================================
-# 4. HELPER FUNCTIONS & ENGINE
+# 5. HELPER FUNCTIONS & ENGINE
 # ==========================================
-def add_xp(user_id, amount):
+async def add_xp(user_id, amount):
+    """Adds XP to user securely via MongoDB and returns (leveled_up, new_level)."""
     current_time = time.time()
-    if user_id not in xp_db:
-        xp_db[user_id] = {"total": 0, "daily": 0, "weekly": 0, "monthly": 0, "last_msg": 0, "level": 1}
     
-    if current_time - xp_db[user_id]["last_msg"] >= 60:
-        xp_db[user_id]["total"] += amount
-        xp_db[user_id]["daily"] += amount
-        xp_db[user_id]["weekly"] += amount
-        xp_db[user_id]["monthly"] += amount
-        xp_db[user_id]["last_msg"] = current_time
+    user_data = await xp_collection.find_one({"_id": user_id})
+    if not user_data:
+        user_data = {"_id": user_id, "total": 0, "daily": 0, "weekly": 0, "monthly": 0, "last_msg": 0, "level": 1}
+    
+    # 60-Second Cooldown
+    if current_time - user_data.get("last_msg", 0) >= 60:
+        new_total = user_data["total"] + amount
+        new_daily = user_data["daily"] + amount
+        new_weekly = user_data.get("weekly", 0) + amount
+        new_monthly = user_data.get("monthly", 0) + amount
+        new_level = user_data["level"]
         
-        current_xp = xp_db[user_id]["total"]
-        next_level_xp = xp_db[user_id]["level"] * 50
-        if current_xp >= next_level_xp:
-            xp_db[user_id]["level"] += 1
-            return True
-    return False
+        leveled_up = False
+        next_level_xp = new_level * 50
+        
+        if new_total >= next_level_xp:
+            new_level += 1
+            leveled_up = True
+            
+        await xp_collection.update_one(
+            {"_id": user_id},
+            {"$set": {
+                "total": new_total,
+                "daily": new_daily,
+                "weekly": new_weekly,
+                "monthly": new_monthly,
+                "last_msg": current_time,
+                "level": new_level
+            }},
+            upsert=True
+        )
+        return leveled_up, new_level
+    return False, user_data.get("level", 1)
 
 # ==========================================
-# 5. INTERACTIVE DROPDOWN ROLES (GUI VIEW)
+# 6. INTERACTIVE DROPDOWN ROLES (GUI VIEW)
 # ==========================================
 class DistroSelect(Select):
     def __init__(self, placeholder, options, custom_id):
@@ -198,6 +229,7 @@ class RolesView(View):
     def __init__(self):
         super().__init__(timeout=None)
         
+        # 1. Arch Based
         arch_opts = [
             discord.SelectOption(label="Arch Linux", value="1521868543799328808"),
             discord.SelectOption(label="Manjaro", value="1521870392472502344"),
@@ -207,23 +239,28 @@ class RolesView(View):
         ]
         self.add_item(DistroSelect(placeholder="Arch / Arch-based", options=arch_opts, custom_id="arch_menu"))
         
-        debian_opts = [
+        # 2. Debian & Ubuntu Based
+        deb_ubu_opts = [
             discord.SelectOption(label="Debian", value="1521870173861056655"),
-            discord.SelectOption(label="Kali Linux", value="1521871399403393044"),
-            discord.SelectOption(label="MX Linux", value="1521871679368986655"),
-            discord.SelectOption(label="Deepin", value="1521871896117776468")
-        ]
-        self.add_item(DistroSelect(placeholder="Debian / Debian-based", options=debian_opts, custom_id="debian_menu"))
-
-        ubuntu_opts = [
             discord.SelectOption(label="Ubuntu", value="1521870110552227910"),
             discord.SelectOption(label="Linux Mint", value="1521868791942742026"),
+            discord.SelectOption(label="Kali Linux", value="1521871399403393044"),
             discord.SelectOption(label="Pop!_OS", value="1521871613958819860"),
             discord.SelectOption(label="Zorin OS", value="1521871816321404969"),
+            discord.SelectOption(label="MX Linux", value="1521871679368986655"),
+            discord.SelectOption(label="Deepin", value="1521871896117776468"),
             discord.SelectOption(label="Elementary OS", value="1521872016901406720")
         ]
-        self.add_item(DistroSelect(placeholder="Ubuntu / Ubuntu-based", options=ubuntu_opts, custom_id="ubuntu_menu"))
+        self.add_item(DistroSelect(placeholder="Debian & Ubuntu-based", options=deb_ubu_opts, custom_id="deb_ubu_menu"))
 
+        # 3. Windows & FreeBSD
+        win_bsd_opts = [
+            discord.SelectOption(label="Windows 11", value="1521909235594825941", emoji="🪟"),
+            discord.SelectOption(label="FreeBSD", value="1521909235594825999", emoji="😈")
+        ]
+        self.add_item(DistroSelect(placeholder="Windows & FreeBSD", options=win_bsd_opts, custom_id="win_bsd_menu"))
+
+        # 4. Independent
         indep_opts = [
             discord.SelectOption(label="Gentoo", value="1521870225228955798"),
             discord.SelectOption(label="Nobara", value="1521872173688422420"),
@@ -236,10 +273,12 @@ class RolesView(View):
             discord.SelectOption(label="Slackware", value="1521873129868365964")
         ]
         self.add_item(DistroSelect(placeholder="Independent", options=indep_opts, custom_id="indep_menu"))
+        
+        # 5. Graphics Driver
         self.add_item(GPUSelect())
 
 # ==========================================
-# 6. BG LOOP TASKS (SCHEDULER - 30 MINS)
+# 7. BG LOOP TASKS (SCHEDULER - 30 MINS)
 # ==========================================
 @tasks.loop(minutes=30)
 async def half_hourly_reminder():
@@ -261,11 +300,13 @@ async def half_hourly_reminder():
 
 @tasks.loop(hours=24)
 async def reset_daily_xp():
-    for user_id in xp_db:
-        xp_db[user_id]["daily"] = 0
+    try:
+        await xp_collection.update_many({}, {"$set": {"daily": 0}})
+    except Exception as e:
+        print(f"Failed to reset daily XP: {e}")
 
 # ==========================================
-# 7. BOT LIFE-CYCLE & AUTOMATION EVENTS
+# 8. BOT LIFE-CYCLE & AUTOMATION EVENTS
 # ==========================================
 @bot.event
 async def on_ready():
@@ -298,14 +339,14 @@ async def apply_warning(member, reason, guild):
         embed = discord.Embed(title="⚠️ System Warning Issued", color=discord.Color.orange())
         embed.add_field(name="User", value=f"{member.mention} ({member.id})", inline=False)
         embed.add_field(name="Reason", value=reason, inline=False)
-        embed.add_field(name="Total Warnings", value=f"**{total_warns}/3**", inline=False)
+        embed.add_field(name="Total Warnings", value=f"**{total_warns}/5**", inline=False)
         await warn_channel.send(embed=embed)
         
-    if total_warns >= 3:
+    if total_warns >= 5:
         try:
-            await member.ban(reason="Automated Ban - Exceeded 3 Active Warnings Limit.")
+            await member.ban(reason="Automated Ban - Exceeded 5 Active Warnings Limit.")
             if warn_channel:
-                await warn_channel.send(f"🚨 {member.mention} has been permanently banned for exceeding the 3-warning limit!")
+                await warn_channel.send(f"🚨 {member.mention} has been permanently banned for exceeding the 5-warning limit!")
             warning_db[member.id] = 0
         except:
             pass
@@ -345,25 +386,25 @@ async def on_message(message):
                 print(f"Profanity filter error: {e}")
 
     gained = random.randint(5, 10)
-    leveled_up = add_xp(message.author.id, gained)
+    leveled_up, new_level = await add_xp(message.author.id, gained)
+    
     if leveled_up:
-        new_level = xp_db[message.author.id]['level']
         level_channel = bot.get_channel(LEVEL_LOG_CHANNEL_ID)
         
         if level_channel:
             await level_channel.send(f"🎉 Congratulations {message.author.mention}! You've reached **Level {new_level}**!")
             
-        if new_level == 20:
+        if new_level == 5:
             media_role = message.guild.get_role(MEDIA_ROLE_ID)
             if media_role:
                 await message.author.add_roles(media_role)
                 if level_channel:
-                    await level_channel.send(f"📸 {message.author.mention} reached level 20 and unlocked **Media Permissions**!")
+                    await level_channel.send(f"📸 {message.author.mention} reached level 5 and unlocked **Media Permissions**!")
 
     await bot.process_commands(message)
 
 # ==========================================
-# 8. COMMAND MATRIX (COMPLETELY IN ENGLISH)
+# 9. COMMAND MATRIX (COMPLETELY IN ENGLISH)
 # ==========================================
 
 # --- CONFIG COMMAND ---
@@ -413,7 +454,7 @@ async def clear(ctx):
 async def roles(ctx):
     """Prints the Dropdown Role Selection panel."""
     role_embed = discord.Embed(
-        title="Choose Your Primary Distro & Graphics Driver", 
+        title="Choose Your Primary Platform & Graphics Driver", 
         description="Use the menus below to select your configurations. Max 1 role per category.", 
         color=discord.Color.dark_theme()
     )
@@ -506,17 +547,19 @@ async def ipban(ctx, member: discord.Member):
     embed.add_field(name="Firewall Status", value="`Dropping all active sessions packet streams...`", inline=False)
     await ctx.send(embed=embed)
 
-# --- SYSTEM EXPERIENCE ANALYTICS ---
+# --- SYSTEM EXPERIENCE ANALYTICS (MONGODB INTEGRATED) ---
 @bot.command()
 async def stats(ctx, member: discord.Member = None):
-    """Displays highly detailed user level card analytics with an automated progress bar."""
+    """Displays highly detailed user level card analytics using MongoDB."""
     member = member or ctx.author
-    if member.id not in xp_db:
-        xp_db[member.id] = {"total": 0, "daily": 0, "weekly": 0, "monthly": 0, "level": 1, "last_msg": 0}
+    
+    # Query MongoDB instead of local memory
+    user_data = await xp_collection.find_one({"_id": member.id})
+    if not user_data:
+        user_data = {"total": 0, "level": 1}
         
-    data = xp_db[member.id]
-    next_xp = data["level"] * 50
-    current_xp = data["total"]
+    next_xp = user_data["level"] * 50
+    current_xp = user_data["total"]
     
     # Progress bar calculation
     percentage = min(current_xp / next_xp, 1.0)
@@ -527,24 +570,27 @@ async def stats(ctx, member: discord.Member = None):
 
     embed = discord.Embed(title=f"📊 {member.name}'s Core Matrix Analytics", color=discord.Color.purple())
     embed.set_thumbnail(url=member.display_avatar.url)
-    embed.add_field(name="System Rank Access", value=f"`Level {data['level']}`", inline=True)
+    embed.add_field(name="System Rank Access", value=f"`Level {user_data['level']}`", inline=True)
     embed.add_field(name="Experience Stream Index", value=f"`{current_xp} / {next_xp} XP`", inline=True)
     embed.add_field(name="Matrix Calibration Progress", value=f"`[{progress_bar}] {int(percentage * 100)}%`", inline=False)
     await ctx.send(embed=embed)
 
 @bot.command()
 async def leaderstats(ctx):
-    """Lists the top 15 highest-ranked matrix members."""
-    if not xp_db:
+    """Lists the top 15 highest-ranked matrix members directly from MongoDB."""
+    # Query database and sort by total XP descending
+    cursor = xp_collection.find({}).sort("total", -1).limit(15)
+    sorted_users = await cursor.to_list(length=15)
+    
+    if not sorted_users:
         return await ctx.send("❌ **Error:** Structural database empty. No records tracked yet.")
         
-    sorted_users = sorted(xp_db.items(), key=lambda x: x[1]['total'], reverse=True)[:15]
     leaderboard_str = ""
-    
-    for index, (user_id, stats_data) in enumerate(sorted_users, start=1):
+    for index, user_data in enumerate(sorted_users, start=1):
+        user_id = user_data["_id"]
         user_obj = ctx.guild.get_member(user_id)
         name = user_obj.name if user_obj else f"Unknown User ({user_id})"
-        leaderboard_str += f"`#{index:02}` **{name}** - Level {stats_data['level']} ({stats_data['total']} XP)\n"
+        leaderboard_str += f"`#{index:02}` **{name}** - Level {user_data['level']} ({user_data['total']} XP)\n"
         
     embed = discord.Embed(title="🏆 Server Communication Matrix - Top 15 Leaderboard", description=leaderboard_str, color=discord.Color.gold())
     await ctx.send(embed=embed)
@@ -744,7 +790,7 @@ async def help(ctx):
     await ctx.send(embed=embed)
 
 # ==========================================
-# 9. GLOBAL EXCEPTION HANDLER
+# 10. GLOBAL EXCEPTION HANDLER
 # ==========================================
 @bot.listen()
 async def on_command_error(ctx, error):
