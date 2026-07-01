@@ -5,3 +5,4 @@ certifi
 feedparser
 easy-pil
 motor
+wheel
