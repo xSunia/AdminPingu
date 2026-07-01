@@ -475,7 +475,7 @@ async def setup_server(ctx):
 # ==========================================
 # 11. GLOBAL SYSTEM EXCEPTION HANDLER
 # ==========================================
-@bot.listener()
+@bot.listen()
 async def on_command_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
         await ctx.send("❌ **ERROR: You are not in the sudoers list!** You lack the necessary privileges to execute this command.")
