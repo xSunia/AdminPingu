@@ -849,4 +849,192 @@ async def whoami(ctx):
     embed.add_field(name="Current Secure Shell Identity", value=f"`{ctx.author.name}#{ctx.author.discriminator}`", inline=True)
     embed.add_field(name="Host Unique Sequence UID ID", value=f"`{ctx.author.id}`", inline=True)
     embed.add_field(name="Infrastructural Nodes Permissions Base", value=f"`Admin: {ctx.author.guild_permissions.administrator}`", inline=True)
-    embed.add_field(name="Active Network Security Cleared Groups", value=f"```text\n{roles_str}
+    embed.add_field(name="Active Network Security Cleared Groups", value=f"```text\n{roles_str}```", inline=False)
+    await ctx.send(embed=embed)
+
+# --- THE WEATHER ENDPOINT OPTIMIZATION MIGRATION ---
+@bot.command()
+async def weather(ctx, *, city: str = ""):
+    """Fetches text-based weather analytics. Correctly rejects blank executions."""
+    if not city.strip():
+        await ctx.send("❌ **Error:** No city selected! Please specify a location (e.g., `?weather London`).")
+        return
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f'https://wttr.in/{city}?format=3') as resp:
+            if resp.status == 200:
+                text = await resp.text()
+                await ctx.send(f"🌤️ **Weather Report:** `{text.strip()}`")
+            else:
+                await ctx.send("❌ **System Fault:** Could not fetch standard weather telemetry array metrics right now.")
+
+# --- COMPREHENSIVE FUN & UTILITY CORE UTILITIES ---
+@bot.command()
+async def tankfact(ctx):
+    """Sends historical tank fact metrics."""
+    fact = random.choice(TANK_FACTS)
+    embed = discord.Embed(title="🪖 Historical Heavy Armored Core Fact", description=fact, color=discord.Color.dark_gray())
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def mmafact(ctx):
+    """Sends combat sports technical trivia metrics."""
+    fact = random.choice(MMA_FACTS)
+    embed = discord.Embed(title="🥊 Combat Athletics & MMA Protocol Fact", description=fact, color=discord.Color.red())
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def pythontip(ctx):
+    """Provides professional modern python compiler syntax tips."""
+    tip = random.choice(PYTHON_TIPS)
+    embed = discord.Embed(title="🐍 Core Python Programming Guideline Directive", description=tip, color=discord.Color.gold())
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def tea(ctx, member: discord.Member = None):
+    """Serves high quality virtual cup of unsweetened Sri Lankan tea."""
+    member = member or ctx.author
+    await ctx.send(f"☕ {member.mention}, here is a freshly brewed cup of strong, unsweetened Sri Lankan tea for you. Enjoy the warmth!")
+
+@bot.command()
+async def ping(ctx):
+    """Validates frame array link socket execution latencies."""
+    latency = round(bot.latency * 1000)
+    await ctx.send(f"🏓 Pong! Global Gateway Socket Network Latency is `{latency}ms`.")
+
+@bot.command()
+async def serverinfo(ctx):
+    """Displays standard host node metrics array specs details."""
+    guild = ctx.guild
+    embed = discord.Embed(title=f"🏰 {guild.name} Node Registry Details", color=discord.Color.blue())
+    embed.add_field(name="Infrastructure Hash Unique ID", value=f"`{guild.id}`", inline=True)
+    embed.add_field(name="Registered Active User Entities", value=f"`{guild.member_count}`", inline=True)
+    embed.add_field(name="Initialization Timestamp Date", value=f"`{guild.created_at.strftime('%Y-%m-%d')}`", inline=True)
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def avatar(ctx, member: discord.Member = None):
+    """Fetches high resolution display user graphics asset frame."""
+    member = member or ctx.author
+    embed = discord.Embed(title=f"🖼️ Display Node Target User Asset Reference: {member.name}", color=discord.Color.dark_magenta())
+    embed.set_image(url=member.display_avatar.url)
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def coinflip(ctx):
+    """Random coin outcome selection algorithm generator execution."""
+    choices = ["Heads", "Tails"]
+    await ctx.send(f"🪙 Execution sequence complete. Outcome: **{random.choice(choices)}**")
+
+@bot.command()
+async def diceroll(ctx, sides: int = 6):
+    """Calculates numerical randomness distributions matrix bound arrays limits."""
+    if sides < 2:
+        return await ctx.send("❌ **Error Matrix Fault:** Minimum dimensional matrix requires at least 2 coordinate facets!")
+    await ctx.send(f"🎲 Vector calculated on a `{sides}`-sided polyhedral module matrix. Result: **{random.randint(1, sides)}**")
+
+@bot.command(name="8ball")
+async def magic_ball(ctx, *, question: str):
+    """Evaluates question parameters query strings to random probability matrix outputs."""
+    responses = [
+        "It is certain.", "Without a doubt.", "Yes, definitely.", 
+        "Ask again later.", "Cannot predict now.", 
+        "Don't count on it.", "My sources say no.", "Very doubtful."
+    ]
+    await ctx.send(f"🎱 **Evaluated Metric Query:** {question}\n**Matrix System Probability Response Output:** {random.choice(responses)}")
+
+@bot.command()
+async def joke(ctx):
+    """Returns random tech development string jokes."""
+    await ctx.send(f"😂 {random.choice(TECH_JOKES)}")
+
+@bot.command()
+async def gif(ctx):
+    """Displays random penguin graphics data asset frames."""
+    embed = discord.Embed(title="🐧 Selected System Environment Asset Render Graphic", color=discord.Color.green())
+    embed.set_image(url=random.choice(LINUX_GIFS))
+    await ctx.send(embed=embed)
+
+# --- UNIFIED GLOBAL OVERVIEW HELP MANIFEST ---
+@bot.command()
+async def help(ctx):
+    """Displays an extensive, beautifully categorized overview of all commands."""
+    embed = discord.Embed(
+        title="🐧 AdminPingu Total Master System Infrastructure Manual Overview", 
+        description="Comprehensive list of modules and kernel execution sequences. All processes are fully active.",
+        color=discord.Color.dark_green()
+    )
+    
+    embed.add_field(
+        name="🛡️ Administrative Root Operations", 
+        value="`?roles` - Deployment configuration dashboard\n"
+              "`?sudolock` - Lockdown local texting channels\n"
+              "`?sudounlock` - Open locked down channel lanes\n"
+              "`?mute <user> [h]` - Silence entity via structural timeout\n"
+              "`?unmute <user>` - Lift channel silences restrictions\n"
+              "`?clear` - Execute 2-step verification massive channel purge\n"
+              "`?warning <user> [reason]` - Apply warning registry indices\n"
+              "`?ban <user> [reason]` - Purge malicious entities permanently\n"
+              "`?unban <id>` - Restore infrastructure privileges access rights\n"
+              "`?ipban <user>` - Emulate a network infrastructure firewall routing ban\n"
+              "`?setnewschannel` - Sets up and locks the automated Linux News channel\n"
+              "`?setjoinchannel` - Sets the channel for visual welcome/goodbye banners", 
+        inline=False
+    )
+    
+    embed.add_field(
+        name="📊 Analytics & Setup Configuration Metrics", 
+        value="`?stats [user]` - Visual representation metric ranking database profiles\n"
+              "`?leaderstats` - Output communication ranking list leaderboards\n"
+              "`?serverinfo` - Display underlying active local machine frame details\n"
+              "`?messagesendadminpingu` - Configure specific reminder target channels", 
+        inline=False
+    )
+    
+    embed.add_field(
+        name="🐧 Linux Terminal Fun Core & Tech Library Modules", 
+        value="`?randomlinux` - Pull random manual operating instructions logs\n"
+              "`?whoami` - Fetch secure shell structural identity matrix credentials\n"
+              "`?pythontip` - Generate code optimization standard recommendations\n"
+              "`?joke` - Retrieve random text programming joke lines\n"
+              "`?gif` - Output random animated system graphic visual assets", 
+        inline=False
+    )
+    
+    embed.add_field(
+        name="🌍 Info, Culture & Entertainment Nodes", 
+        value="`?weather <city>` - Output real-time location forecasting telemetry\n"
+              "`?tankfact` - Read heavy ground vehicular historically loaded logs\n"
+              "`?mmafact` - Render athletic combat tournament history files\n"
+              "`?tea` - Brew high quality virtual cup samples allocations", 
+        inline=False
+    )
+    
+    embed.add_field(
+        name="🎲 Fun, Randomization Games & Utilities Array", 
+        value="`?coinflip` - Run binary heads or tails randomization streams\n"
+              "`?diceroll [sides]` - Return dynamic value from target multi-sided geometry dice\n"
+              "`?8ball <question>` - Ask systemic future prediction evaluations questions\n"
+              "`?ping` - Check socket communication performance latency frames\n"
+              "`?avatar [user]` - Isolate high resolution user graphics imagery profiles", 
+        inline=False
+    )
+    
+    embed.set_footer(text="Parameters in [brackets] are optional, <angle brackets> are structurally required variables.")
+    await ctx.send(embed=embed)
+
+# ==========================================
+# 10. GLOBAL EXCEPTION HANDLER
+# ==========================================
+@bot.listen()
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ **Access Denied:** You lack the necessary root system permissions required to execute this command structure!")
+    elif isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send(f"❌ **Syntax Error:** Missing mandatory argument values! Consult structural guides via `?help` command sequences.")
+    else:
+        print(f"Unhandled system error: {error}")
+
+# BOOTUP SEQUENCE
+keep_alive()
+bot.run(os.environ["DISCORD_TOKEN"])
