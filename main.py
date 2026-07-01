@@ -129,13 +129,16 @@ ALL_GPU_ROLES = [1521879270530486414, 1521879224951246928, 1521879315648614410]
 # ==========================================
 # 4. MONGODB DATABASE SETUP (OPTIMIZED & CONNECTED)
 # ==========================================
-# Girdiğin URI adresi eklendi. Gelecekte güvenliğini artırmak istersen ENV (os.environ.get) kullanmaya devam edebilirsin.
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb+srv://sunia3844_db_user:zEOl0Au1bkjAZNFo@cluster0.wihgnrw.mongodb.net/?appName=Cluster0")
+MONGO_URI = os.environ.get("MONGO_URI")
 
-# Bulut (Render) veya Linux ortamlarında SSL/TLS hatalarını (ServerSelectionTimeoutError) tamamen çözmek için certifi.where() eklendi.
-mongo_client = AsyncIOMotorClient(MONGO_URI, tlsCAFile=certifi.where())
-db = mongo_client["AdminPinguDB"]
-xp_collection = db["users_xp"]
+# OPTİMİZASYON: Sunucu zaman aşımını 5000ms (5 saniye) ile sınırladık. 
+# Böylece DB engelli bile olsa bot donup kalmaz.
+try:
+    mongo_client = AsyncIOMotorClient(MONGO_URI, tlsCAFile=certifi.where(), serverSelectionTimeoutMS=5000)
+    db = mongo_client["AdminPinguDB"]
+    xp_collection = db["users_xp"]
+except Exception as e:
+    print(f"MongoDB Başlatma Hatası: {e}")
 
 warning_db = {}
 user_message_cache = {} 
@@ -145,41 +148,45 @@ user_message_cache = {}
 # ==========================================
 async def add_xp(user_id, amount):
     """Adds XP to user securely via MongoDB and returns (leveled_up, new_level)."""
-    current_time = time.time()
-    
-    user_data = await xp_collection.find_one({"_id": user_id})
-    if not user_data:
-        user_data = {"_id": user_id, "total": 0, "daily": 0, "weekly": 0, "monthly": 0, "last_msg": 0, "level": 1}
-    
-    # 60-Second Cooldown
-    if current_time - user_data.get("last_msg", 0) >= 60:
-        new_total = user_data["total"] + amount
-        new_daily = user_data["daily"] + amount
-        new_weekly = user_data.get("weekly", 0) + amount
-        new_monthly = user_data.get("monthly", 0) + amount
-        new_level = user_data["level"]
+    try:
+        current_time = time.time()
         
-        leveled_up = False
-        next_level_xp = new_level * 50
+        user_data = await xp_collection.find_one({"_id": user_id})
+        if not user_data:
+            user_data = {"_id": user_id, "total": 0, "daily": 0, "weekly": 0, "monthly": 0, "last_msg": 0, "level": 1}
         
-        if new_total >= next_level_xp:
-            new_level += 1
-            leveled_up = True
+        # 60-Second Cooldown
+        if current_time - user_data.get("last_msg", 0) >= 60:
+            new_total = user_data["total"] + amount
+            new_daily = user_data["daily"] + amount
+            new_weekly = user_data.get("weekly", 0) + amount
+            new_monthly = user_data.get("monthly", 0) + amount
+            new_level = user_data["level"]
             
-        await xp_collection.update_one(
-            {"_id": user_id},
-            {"$set": {
-                "total": new_total,
-                "daily": new_daily,
-                "weekly": new_weekly,
-                "monthly": new_monthly,
-                "last_msg": current_time,
-                "level": new_level
-            }},
-            upsert=True
-        )
-        return leveled_up, new_level
-    return False, user_data.get("level", 1)
+            leveled_up = False
+            next_level_xp = new_level * 50
+            
+            if new_total >= next_level_xp:
+                new_level += 1
+                leveled_up = True
+                
+            await xp_collection.update_one(
+                {"_id": user_id},
+                {"$set": {
+                    "total": new_total,
+                    "daily": new_daily,
+                    "weekly": new_weekly,
+                    "monthly": new_monthly,
+                    "last_msg": current_time,
+                    "level": new_level
+                }},
+                upsert=True
+            )
+            return leveled_up, new_level
+        return False, user_data.get("level", 1)
+    except Exception as e:
+        print(f"Veritabanı erişim hatası (add_xp): {e}")
+        return False, 1 # Hata olursa varsayılan değer dön, botu çökertme.
 
 # ==========================================
 # 6. INTERACTIVE DROPDOWN ROLES (GUI VIEW)
@@ -385,22 +392,27 @@ async def on_message(message):
             except Exception as e:
                 print(f"Profanity filter error: {e}")
 
-    gained = random.randint(5, 10)
-    leveled_up, new_level = await add_xp(message.author.id, gained)
-    
-    if leveled_up:
-        level_channel = bot.get_channel(LEVEL_LOG_CHANNEL_ID)
+    # OPTİMİZASYON: XP sistemi çökse bile (DB bağlantısı hatası vb.) komutların çalışmasını garanti altına aldık.
+    try:
+        gained = random.randint(5, 10)
+        leveled_up, new_level = await add_xp(message.author.id, gained)
         
-        if level_channel:
-            await level_channel.send(f"🎉 Congratulations {message.author.mention}! You've reached **Level {new_level}**!")
+        if leveled_up:
+            level_channel = bot.get_channel(LEVEL_LOG_CHANNEL_ID)
             
-        if new_level == 5:
-            media_role = message.guild.get_role(MEDIA_ROLE_ID)
-            if media_role:
-                await message.author.add_roles(media_role)
-                if level_channel:
-                    await level_channel.send(f"📸 {message.author.mention} reached level 5 and unlocked **Media Permissions**!")
+            if level_channel:
+                await level_channel.send(f"🎉 Congratulations {message.author.mention}! You've reached **Level {new_level}**!")
+                
+            if new_level == 5:
+                media_role = message.guild.get_role(MEDIA_ROLE_ID)
+                if media_role:
+                    await message.author.add_roles(media_role)
+                    if level_channel:
+                        await level_channel.send(f"📸 {message.author.mention} reached level 5 and unlocked **Media Permissions**!")
+    except Exception as e:
+        print(f"XP Sistemi Atlandı: {e}")
 
+    # KOMUTLARI İŞLE - DB yanıt vermese de bu satır artık kesinlikle çalışacak!
     await bot.process_commands(message)
 
 # ==========================================
@@ -553,15 +565,17 @@ async def stats(ctx, member: discord.Member = None):
     """Displays highly detailed user level card analytics using MongoDB."""
     member = member or ctx.author
     
-    # Query MongoDB instead of local memory
-    user_data = await xp_collection.find_one({"_id": member.id})
+    try:
+        user_data = await xp_collection.find_one({"_id": member.id})
+    except Exception:
+        user_data = None
+
     if not user_data:
         user_data = {"total": 0, "level": 1}
         
     next_xp = user_data["level"] * 50
     current_xp = user_data["total"]
     
-    # Progress bar calculation
     percentage = min(current_xp / next_xp, 1.0)
     bar_length = 10
     filled_blocks = int(percentage * bar_length)
@@ -578,22 +592,24 @@ async def stats(ctx, member: discord.Member = None):
 @bot.command()
 async def leaderstats(ctx):
     """Lists the top 15 highest-ranked matrix members directly from MongoDB."""
-    # Query database and sort by total XP descending
-    cursor = xp_collection.find({}).sort("total", -1).limit(15)
-    sorted_users = await cursor.to_list(length=15)
-    
-    if not sorted_users:
-        return await ctx.send("❌ **Error:** Structural database empty. No records tracked yet.")
+    try:
+        cursor = xp_collection.find({}).sort("total", -1).limit(15)
+        sorted_users = await cursor.to_list(length=15)
         
-    leaderboard_str = ""
-    for index, user_data in enumerate(sorted_users, start=1):
-        user_id = user_data["_id"]
-        user_obj = ctx.guild.get_member(user_id)
-        name = user_obj.name if user_obj else f"Unknown User ({user_id})"
-        leaderboard_str += f"`#{index:02}` **{name}** - Level {user_data['level']} ({user_data['total']} XP)\n"
-        
-    embed = discord.Embed(title="🏆 Server Communication Matrix - Top 15 Leaderboard", description=leaderboard_str, color=discord.Color.gold())
-    await ctx.send(embed=embed)
+        if not sorted_users:
+            return await ctx.send("❌ **Error:** Structural database empty. No records tracked yet.")
+            
+        leaderboard_str = ""
+        for index, user_data in enumerate(sorted_users, start=1):
+            user_id = user_data["_id"]
+            user_obj = ctx.guild.get_member(user_id)
+            name = user_obj.name if user_obj else f"Unknown User ({user_id})"
+            leaderboard_str += f"`#{index:02}` **{name}** - Level {user_data['level']} ({user_data['total']} XP)\n"
+            
+        embed = discord.Embed(title="🏆 Server Communication Matrix - Top 15 Leaderboard", description=leaderboard_str, color=discord.Color.gold())
+        await ctx.send(embed=embed)
+    except Exception as e:
+        await ctx.send(f"❌ **Database Error:** Could not fetch records. Details: {e}")
 
 # --- LINUX TERMINAL FUN CORE ---
 @bot.command()
