@@ -486,4 +486,4 @@ async def on_command_error(ctx, error):
 
 # BOOTUP SEQUENCE
 keep_alive()
-bot.run(os.environ["MTUyMTg1MjQ3NTU4NDI4MjcyNg.GizTXB.bqd1VNqyr67munzlMCVqoJR6baoNmHBtxy3wFY"])
+bot.run(os.environ["DISCORD_TOKEN"])
