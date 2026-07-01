@@ -11,7 +11,7 @@ import aiohttp
 import asyncio
 import certifi
 import feedparser
-import re # EKLENDI: Küfür koruması Regex kütüphanesi
+import re # ADDED: Profanity protection Regex library
 from easy_pil import Editor, Canvas, Font, load_image_async
 from motor.motor_asyncio import AsyncIOMotorClient
 
@@ -65,7 +65,7 @@ LEVEL_ROLES = {
     100: 1521924931875635210
 }
 
-# Eski liste durabilir, ancak artık regex sistemi kullanılıyor
+# Old list remains, but regex system is now the primary filter
 PROFANITY_LIST = [
     "fuck", "shit", "bitch", "asshole", "dick", "pussy", "cunt", "bastard", "motherfucker", 
     "wanker", "twat", "nigger", "faggot", "slut", "whore", "crap", "bollocks", "bugger", 
@@ -143,20 +143,22 @@ ALL_DISTRO_ROLES = [
 ALL_GPU_ROLES = [1521879270530486414, 1521879224951246928, 1521879315648614410]
 
 # ==========================================
-# EKLENEN YENİ SİSTEM: AĞIR KÜFÜR KONTROL FONKSİYONU
+# NEW SYSTEM ADDED: GLOBAL REGEX OPTIMIZATION
 # ==========================================
+# OPTIMIZATION: Compiling regex globally once to prevent high CPU load on every message
+HEAVY_SWEAR_REGEX = re.compile(r"(?i)\b(dih|n[i1ı!l\|]+[gq9ğ]{2,}[e3a@]*r*|n[i1ı!l\|]+[gq9ğ]{2,}[a@]+)\b")
+STRICT_BANNED_WORDS = {"nigger", "nigga", "nıgga", "nıgger", "n1gga"}
+
 def is_heavy_swear(text):
     text = text.lower()
     
-    # 1. Aşama: Tam Kelime ve Harf Oyunları Yakalama
-    banned_regex = re.compile(r"(?i)\b(dih|n[i1ı!l\|]+[gq9ğ]{2,}[e3a@]*r*|n[i1ı!l\|]+[gq9ğ]{2,}[a@]+)\b")
-    if banned_regex.search(text):
+    # Stage 1: Exact Word and Letter Play Catching
+    if HEAVY_SWEAR_REGEX.search(text):
         return True
         
-    # 2. Aşama: Boşluk ve Sembol ile Bypass Koruması
+    # Stage 2: Bypass Protection with Spaces and Symbols
     stripped = re.sub(r'[^a-zıiğüşöç]', '', text)
-    strict_banned = ["nigger", "nigga", "nıgga", "nıgger", "n1gga"]
-    for word in strict_banned:
+    for word in STRICT_BANNED_WORDS:
         if word in stripped:
             return True
             
@@ -410,7 +412,7 @@ async def on_member_join(member):
         except Exception as e:
             print(f"Auto-role assignment error: {e}")
 
-    # EKLENEN YENİ SİSTEM: LINUX TERMINAL TEXT WELCOME
+    # NEW SYSTEM ADDED: LINUX TERMINAL TEXT WELCOME
     terminal_channel = bot.get_channel(1510339895032418508)
     if terminal_channel:
         linux_msg = (
@@ -419,11 +421,11 @@ async def on_member_join(member):
             f"user_id: {member.id}\n"
             f"status: authorized_entry\n"
             f"```\n"
-            f"🔌 **Terminal Access Granted!** Sisteme hoş geldin, {member.mention}.\n\n"
-            f"📂 **Başlamadan Önce Gerekli Dizinleri İncele:**\n"
-            f"> 📜 Kuralları oku: <#1510343681985613905>\n"
-            f"> 🏷️ Rollerini al: <#1521868274240065597>\n\n"
-            f"*Sistem optimizasyonu tamamlandı. Artık ana terminale yazabilirsin.*"
+            f"🔌 **Terminal Access Granted!** Welcome to the system, {member.mention}.\n\n"
+            f"📂 **Review the Required Directories Before Starting:**\n"
+            f"> 📜 Read the rules: <#1510343681985613905>\n"
+            f"> 🏷️ Claim your roles: <#1521868274240065597>\n\n"
+            f"*System optimization complete. You may now write in the main terminal.*"
         )
         await terminal_channel.send(linux_msg)
 
@@ -527,15 +529,15 @@ async def on_message(message):
             user_message_cache[message.author.id] = [] 
             return
 
-        # EKLENEN YENİ SİSTEM: AĞIR KÜFÜR KONTROLÜ (Regex ile Bypass Korumalı)
+        # NEW SYSTEM ADDED: HEAVY PROFANITY CONTROL (Bypass Protected with Regex)
         if is_heavy_swear(message.content):
             try:
                 await message.delete()
                 warning_channel = bot.get_channel(1521880436270301354)
                 if warning_channel:
-                    await warning_channel.send(f"🚨 Uyarı! {message.author.mention} ağır bir yasaklı kelime kullandı.")
-                # Uyarı sistemine de kaydet (5. de ban atar)
-                await apply_warning(message.author, "Ağır yasaklı kelime kullanımı (Bypass Koruması Tetiklendi)", message.guild)
+                    await warning_channel.send(f"🚨 Warning! {message.author.mention} has used a strictly prohibited word.")
+                # Save to warning system (Bans on the 5th offense)
+                await apply_warning(message.author, "Severe prohibited word usage (Bypass Protection Triggered)", message.guild)
                 return  
             except Exception as e:
                 print(f"Heavy Profanity filter error: {e}")
@@ -549,10 +551,10 @@ async def on_message(message):
             level_channel = bot.get_channel(LEVEL_LOG_CHANNEL_ID)
             epic_channel = bot.get_channel(EPIC_LEVEL_100_CHANNEL)
             
-            # EKLENEN YENİ SİSTEM: HER LEVEL ATLANDIĞINDA ÇALIŞACAK DİNAMİK MESAJ
+            # NEW SYSTEM ADDED: DYNAMIC MESSAGE ON EVERY LEVEL UP
             level_log_channel = bot.get_channel(1521880096854769785)
             if level_log_channel:
-                await level_log_channel.send(f"🆙 Gelişim Raporu: {message.author.mention} tecrübe kazandı ve **Level {new_level}** seviyesine ulaştı! 🎉")
+                await level_log_channel.send(f"🆙 Progress Report: {message.author.mention} has gained experience and reached **Level {new_level}**! 🎉")
             
             # ASSIGN NECESSARY ROLE
             if new_level in LEVEL_ROLES:
@@ -560,7 +562,7 @@ async def on_message(message):
                 if target_role:
                     await message.author.add_roles(target_role)
 
-            # SPECIAL LEVEL MESSAGES (ORİJİNAL - HİÇBİRİ SİLİNMEDİ)
+            # SPECIAL LEVEL MESSAGES (ORIGINAL - NONE DELETED)
             if new_level == 5:
                 await level_channel.send(f"🎉 Congratulations {message.author.mention}, you're now **LEVEL 5**!\n🔓 **Unlocked:** Media Permission")
                 media_role = message.guild.get_role(MEDIA_ROLE_ID)
@@ -847,192 +849,4 @@ async def whoami(ctx):
     embed.add_field(name="Current Secure Shell Identity", value=f"`{ctx.author.name}#{ctx.author.discriminator}`", inline=True)
     embed.add_field(name="Host Unique Sequence UID ID", value=f"`{ctx.author.id}`", inline=True)
     embed.add_field(name="Infrastructural Nodes Permissions Base", value=f"`Admin: {ctx.author.guild_permissions.administrator}`", inline=True)
-    embed.add_field(name="Active Network Security Cleared Groups", value=f"```text\n{roles_str}```", inline=False)
-    await ctx.send(embed=embed)
-
-# --- THE WEATHER ENDPOINT OPTIMIZATION MIGRATION ---
-@bot.command()
-async def weather(ctx, *, city: str = ""):
-    """Fetches text-based weather analytics. Correctly rejects blank executions."""
-    if not city.strip():
-        await ctx.send("❌ **Error:** No city selected! Please specify a location (e.g., `?weather London`).")
-        return
-
-    async with aiohttp.ClientSession() as session:
-        async with session.get(f'https://wttr.in/{city}?format=3') as resp:
-            if resp.status == 200:
-                text = await resp.text()
-                await ctx.send(f"🌤️ **Weather Report:** `{text.strip()}`")
-            else:
-                await ctx.send("❌ **System Fault:** Could not fetch standard weather telemetry array metrics right now.")
-
-# --- COMPREHENSIVE FUN & UTILITY CORE UTILITIES ---
-@bot.command()
-async def tankfact(ctx):
-    """Sends historical tank fact metrics."""
-    fact = random.choice(TANK_FACTS)
-    embed = discord.Embed(title="🪖 Historical Heavy Armored Core Fact", description=fact, color=discord.Color.dark_gray())
-    await ctx.send(embed=embed)
-
-@bot.command()
-async def mmafact(ctx):
-    """Sends combat sports technical trivia metrics."""
-    fact = random.choice(MMA_FACTS)
-    embed = discord.Embed(title="🥊 Combat Athletics & MMA Protocol Fact", description=fact, color=discord.Color.red())
-    await ctx.send(embed=embed)
-
-@bot.command()
-async def pythontip(ctx):
-    """Provides professional modern python compiler syntax tips."""
-    tip = random.choice(PYTHON_TIPS)
-    embed = discord.Embed(title="🐍 Core Python Programming Guideline Directive", description=tip, color=discord.Color.gold())
-    await ctx.send(embed=embed)
-
-@bot.command()
-async def tea(ctx, member: discord.Member = None):
-    """Serves high quality virtual cup of unsweetened Sri Lankan tea."""
-    member = member or ctx.author
-    await ctx.send(f"☕ {member.mention}, here is a freshly brewed cup of strong, unsweetened Sri Lankan tea for you. Enjoy the warmth!")
-
-@bot.command()
-async def ping(ctx):
-    """Validates frame array link socket execution latencies."""
-    latency = round(bot.latency * 1000)
-    await ctx.send(f"🏓 Pong! Global Gateway Socket Network Latency is `{latency}ms`.")
-
-@bot.command()
-async def serverinfo(ctx):
-    """Displays standard host node metrics array specs details."""
-    guild = ctx.guild
-    embed = discord.Embed(title=f"🏰 {guild.name} Node Registry Details", color=discord.Color.blue())
-    embed.add_field(name="Infrastructure Hash Unique ID", value=f"`{guild.id}`", inline=True)
-    embed.add_field(name="Registered Active User Entities", value=f"`{guild.member_count}`", inline=True)
-    embed.add_field(name="Initialization Timestamp Date", value=f"`{guild.created_at.strftime('%Y-%m-%d')}`", inline=True)
-    await ctx.send(embed=embed)
-
-@bot.command()
-async def avatar(ctx, member: discord.Member = None):
-    """Fetches high resolution display user graphics asset frame."""
-    member = member or ctx.author
-    embed = discord.Embed(title=f"🖼️ Display Node Target User Asset Reference: {member.name}", color=discord.Color.dark_magenta())
-    embed.set_image(url=member.display_avatar.url)
-    await ctx.send(embed=embed)
-
-@bot.command()
-async def coinflip(ctx):
-    """Random coin outcome selection algorithm generator execution."""
-    choices = ["Heads", "Tails"]
-    await ctx.send(f"🪙 Execution sequence complete. Outcome: **{random.choice(choices)}**")
-
-@bot.command()
-async def diceroll(ctx, sides: int = 6):
-    """Calculates numerical randomness distributions matrix bound arrays limits."""
-    if sides < 2:
-        return await ctx.send("❌ **Error Matrix Fault:** Minimum dimensional matrix requires at least 2 coordinate facets!")
-    await ctx.send(f"🎲 Vector calculated on a `{sides}`-sided polyhedral module matrix. Result: **{random.randint(1, sides)}**")
-
-@bot.command(name="8ball")
-async def magic_ball(ctx, *, question: str):
-    """Evaluates question parameters query strings to random probability matrix outputs."""
-    responses = [
-        "It is certain.", "Without a doubt.", "Yes, definitely.", 
-        "Ask again later.", "Cannot predict now.", 
-        "Don't count on it.", "My sources say no.", "Very doubtful."
-    ]
-    await ctx.send(f"🎱 **Evaluated Metric Query:** {question}\n**Matrix System Probability Response Output:** {random.choice(responses)}")
-
-@bot.command()
-async def joke(ctx):
-    """Returns random tech development string jokes."""
-    await ctx.send(f"😂 {random.choice(TECH_JOKES)}")
-
-@bot.command()
-async def gif(ctx):
-    """Displays random penguin graphics data asset frames."""
-    embed = discord.Embed(title="🐧 Selected System Environment Asset Render Graphic", color=discord.Color.green())
-    embed.set_image(url=random.choice(LINUX_GIFS))
-    await ctx.send(embed=embed)
-
-# --- UNIFIED GLOBAL OVERVIEW HELP MANIFEST ---
-@bot.command()
-async def help(ctx):
-    """Displays an extensive, beautifully categorized overview of all commands."""
-    embed = discord.Embed(
-        title="🐧 AdminPingu Total Master System Infrastructure Manual Overview", 
-        description="Comprehensive list of modules and kernel execution sequences. All processes are fully active.",
-        color=discord.Color.dark_green()
-    )
-    
-    embed.add_field(
-        name="🛡️ Administrative Root Operations", 
-        value="`?roles` - Deployment configuration dashboard\n"
-              "`?sudolock` - Lockdown local texting channels\n"
-              "`?sudounlock` - Open locked down channel lanes\n"
-              "`?mute <user> [h]` - Silence entity via structural timeout\n"
-              "`?unmute <user>` - Lift channel silences restrictions\n"
-              "`?clear` - Execute 2-step verification massive channel purge\n"
-              "`?warning <user> [reason]` - Apply warning registry indices\n"
-              "`?ban <user> [reason]` - Purge malicious entities permanently\n"
-              "`?unban <id>` - Restore infrastructure privileges access rights\n"
-              "`?ipban <user>` - Emulate a network infrastructure firewall routing ban\n"
-              "`?setnewschannel` - Sets up and locks the automated Linux News channel\n"
-              "`?setjoinchannel` - Sets the channel for visual welcome/goodbye banners", 
-        inline=False
-    )
-    
-    embed.add_field(
-        name="📊 Analytics & Setup Configuration Metrics", 
-        value="`?stats [user]` - Visual representation metric ranking database profiles\n"
-              "`?leaderstats` - Output communication ranking list leaderboards\n"
-              "`?serverinfo` - Display underlying active local machine frame details\n"
-              "`?messagesendadminpingu` - Configure specific reminder target channels", 
-        inline=False
-    )
-    
-    embed.add_field(
-        name="🐧 Linux Terminal Fun Core & Tech Library Modules", 
-        value="`?randomlinux` - Pull random manual operating instructions logs\n"
-              "`?whoami` - Fetch secure shell structural identity matrix credentials\n"
-              "`?pythontip` - Generate code optimization standard recommendations\n"
-              "`?joke` - Retrieve random text programming joke lines\n"
-              "`?gif` - Output random animated system graphic visual assets", 
-        inline=False
-    )
-    
-    embed.add_field(
-        name="🌍 Info, Culture & Entertainment Nodes", 
-        value="`?weather <city>` - Output real-time location forecasting telemetry\n"
-              "`?tankfact` - Read heavy ground vehicular historically loaded logs\n"
-              "`?mmafact` - Render athletic combat tournament history files\n"
-              "`?tea` - Brew high quality virtual cup samples allocations", 
-        inline=False
-    )
-    
-    embed.add_field(
-        name="🎲 Fun, Randomization Games & Utilities Array", 
-        value="`?coinflip` - Run binary heads or tails randomization streams\n"
-              "`?diceroll [sides]` - Return dynamic value from target multi-sided geometry dice\n"
-              "`?8ball <question>` - Ask systemic future prediction evaluations questions\n"
-              "`?ping` - Check socket communication performance latency frames\n"
-              "`?avatar [user]` - Isolate high resolution user graphics imagery profiles", 
-        inline=False
-    )
-    
-    embed.set_footer(text="Parameters in [brackets] are optional, <angle brackets> are structurally required variables.")
-    await ctx.send(embed=embed)
-
-# ==========================================
-# 10. GLOBAL EXCEPTION HANDLER
-# ==========================================
-@bot.listen()
-async def on_command_error(ctx, error):
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ **Access Denied:** You lack the necessary root system permissions required to execute this command structure!")
-    elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(f"❌ **Syntax Error:** Missing mandatory argument values! Consult structural guides via `?help` command sequences.")
-    else:
-        print(f"Unhandled system error: {error}")
-
-# BOOTUP SEQUENCE
-keep_alive()
-bot.run(os.environ["DISCORD_TOKEN"])
+    embed.add_field(name="Active Network Security Cleared Groups", value=f"```text\n{roles_str}
