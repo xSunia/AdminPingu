@@ -1,10 +1,7 @@
 discord.py
-flask
-motor
-certifi
+Flask
 aiohttp
-easy-pil
+certifi
 feedparser
-python-dotenv
-aiodns
-cchardet
+easy-pil
+motor
