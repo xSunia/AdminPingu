@@ -11,6 +11,7 @@ import aiohttp
 import asyncio
 import certifi
 import feedparser
+import re # EKLENDI: Küfür koruması Regex kütüphanesi
 from easy_pil import Editor, Canvas, Font, load_image_async
 from motor.motor_asyncio import AsyncIOMotorClient
 
@@ -64,6 +65,7 @@ LEVEL_ROLES = {
     100: 1521924931875635210
 }
 
+# Eski liste durabilir, ancak artık regex sistemi kullanılıyor
 PROFANITY_LIST = [
     "fuck", "shit", "bitch", "asshole", "dick", "pussy", "cunt", "bastard", "motherfucker", 
     "wanker", "twat", "nigger", "faggot", "slut", "whore", "crap", "bollocks", "bugger", 
@@ -139,6 +141,26 @@ ALL_DISTRO_ROLES = [
     1521909235594825941, 1521909235594825999
 ]
 ALL_GPU_ROLES = [1521879270530486414, 1521879224951246928, 1521879315648614410]
+
+# ==========================================
+# EKLENEN YENİ SİSTEM: AĞIR KÜFÜR KONTROL FONKSİYONU
+# ==========================================
+def is_heavy_swear(text):
+    text = text.lower()
+    
+    # 1. Aşama: Tam Kelime ve Harf Oyunları Yakalama
+    banned_regex = re.compile(r"(?i)\b(dih|n[i1ı!l\|]+[gq9ğ]{2,}[e3a@]*r*|n[i1ı!l\|]+[gq9ğ]{2,}[a@]+)\b")
+    if banned_regex.search(text):
+        return True
+        
+    # 2. Aşama: Boşluk ve Sembol ile Bypass Koruması
+    stripped = re.sub(r'[^a-zıiğüşöç]', '', text)
+    strict_banned = ["nigger", "nigga", "nıgga", "nıgger", "n1gga"]
+    for word in strict_banned:
+        if word in stripped:
+            return True
+            
+    return False
 
 # ==========================================
 # 4. MONGODB DATABASE SETUP & OPTIMIZED CACHING
@@ -388,7 +410,24 @@ async def on_member_join(member):
         except Exception as e:
             print(f"Auto-role assignment error: {e}")
 
-    # NEW: EASY-PIL VISUAL WELCOME SCREEN
+    # EKLENEN YENİ SİSTEM: LINUX TERMINAL TEXT WELCOME
+    terminal_channel = bot.get_channel(1510339895032418508)
+    if terminal_channel:
+        linux_msg = (
+            f"```yaml\n"
+            f"sys.log: [NEW_CONNECTION_ESTABLISHED]\n"
+            f"user_id: {member.id}\n"
+            f"status: authorized_entry\n"
+            f"```\n"
+            f"🔌 **Terminal Access Granted!** Sisteme hoş geldin, {member.mention}.\n\n"
+            f"📂 **Başlamadan Önce Gerekli Dizinleri İncele:**\n"
+            f"> 📜 Kuralları oku: <#1510343681985613905>\n"
+            f"> 🏷️ Rollerini al: <#1521868274240065597>\n\n"
+            f"*Sistem optimizasyonu tamamlandı. Artık ana terminale yazabilirsin.*"
+        )
+        await terminal_channel.send(linux_msg)
+
+    # ORIGINAL: EASY-PIL VISUAL WELCOME SCREEN
     try:
         guild_config = await config_collection.find_one({"_id": str(member.guild.id)})
         if guild_config and "join_channel" in guild_config:
@@ -416,7 +455,7 @@ async def on_member_join(member):
 
 @bot.event
 async def on_member_remove(member):
-    # NEW: EASY-PIL VISUAL GOODBYE SCREEN
+    # ORIGINAL: EASY-PIL VISUAL GOODBYE SCREEN
     try:
         guild_config = await config_collection.find_one({"_id": str(member.guild.id)})
         if guild_config and "join_channel" in guild_config:
@@ -488,16 +527,18 @@ async def on_message(message):
             user_message_cache[message.author.id] = [] 
             return
 
-        # PROFANITY FILTER
-        msg_content = message.content.lower()
-        if any(word in msg_content for word in PROFANITY_LIST):
+        # EKLENEN YENİ SİSTEM: AĞIR KÜFÜR KONTROLÜ (Regex ile Bypass Korumalı)
+        if is_heavy_swear(message.content):
             try:
                 await message.delete()
-                await message.channel.send(f"Hey {message.author.mention}, swearing is strictly prohibited!", delete_after=5)
-                await apply_warning(message.author, f"Profanity filtering system trigger.", message.guild)
+                warning_channel = bot.get_channel(1521880436270301354)
+                if warning_channel:
+                    await warning_channel.send(f"🚨 Uyarı! {message.author.mention} ağır bir yasaklı kelime kullandı.")
+                # Uyarı sistemine de kaydet (5. de ban atar)
+                await apply_warning(message.author, "Ağır yasaklı kelime kullanımı (Bypass Koruması Tetiklendi)", message.guild)
                 return  
             except Exception as e:
-                print(f"Profanity filter error: {e}")
+                print(f"Heavy Profanity filter error: {e}")
 
     # OPTIMIZATION AND XP GAIN: Slower rate (4-8 points)
     try:
@@ -508,13 +549,18 @@ async def on_message(message):
             level_channel = bot.get_channel(LEVEL_LOG_CHANNEL_ID)
             epic_channel = bot.get_channel(EPIC_LEVEL_100_CHANNEL)
             
+            # EKLENEN YENİ SİSTEM: HER LEVEL ATLANDIĞINDA ÇALIŞACAK DİNAMİK MESAJ
+            level_log_channel = bot.get_channel(1521880096854769785)
+            if level_log_channel:
+                await level_log_channel.send(f"🆙 Gelişim Raporu: {message.author.mention} tecrübe kazandı ve **Level {new_level}** seviyesine ulaştı! 🎉")
+            
             # ASSIGN NECESSARY ROLE
             if new_level in LEVEL_ROLES:
                 target_role = message.guild.get_role(LEVEL_ROLES[new_level])
                 if target_role:
                     await message.author.add_roles(target_role)
 
-            # SPECIAL LEVEL MESSAGES
+            # SPECIAL LEVEL MESSAGES (ORİJİNAL - HİÇBİRİ SİLİNMEDİ)
             if new_level == 5:
                 await level_channel.send(f"🎉 Congratulations {message.author.mention}, you're now **LEVEL 5**!\n🔓 **Unlocked:** Media Permission")
                 media_role = message.guild.get_role(MEDIA_ROLE_ID)
