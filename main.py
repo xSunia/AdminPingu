@@ -485,4 +485,4 @@ async def on_command_error(ctx, error):
 
 # BOOTUP SEQUENCE
 keep_alive()
-bot.run("BURAYA_YENI_ALIDGIN_TOKENI_YAPIŞTIR")
+bot.run("MTUyMTg1MjQ3NTU4NDI4MjcyNg.GizTXB.bqd1VNqyr67munzlMCVqoJR6baoNmHBtxy3wFY")
