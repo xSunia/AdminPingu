@@ -491,8 +491,8 @@ async def diceroll(ctx, sides: int = 6):
     result = random.randint(1, sides)
     await ctx.send(f"🎲 You rolled a `{sides}`-sided dice and got: **{result}**")
 
-@bot.command()
-async def 8ball(ctx, *, question: str):
+@bot.command(name="8ball")
+async def magic_ball(ctx, *, question: str):
     """Answers a yes/no question."""
     responses = [
         "It is certain.", "Without a doubt.", "Yes, definitely.", 
@@ -536,7 +536,7 @@ async def help(ctx):
     embed.add_field(name="🐧 Linux & Tech", value="`?randomlinux`\n`?gif`\n`?pythontip`\n`?joke`", inline=True)
     embed.add_field(name="🎲 Fun & Games", value="`?coinflip`\n`?diceroll [sides]`\n`?8ball <question>`", inline=True)
     embed.add_field(name="🌍 Info & Culture", value="`?weather [city]`\n`?tankfact`\n`?mmafact`\n`?tea`", inline=True)
-    embed.add_field(name="🛠️ Utility", value="`?ping`\n`?avatar [user]`", inline=True)
+    embed.add_field(name="🛠️ Utility", value="`?ping`\n`?avatar [user]`\n`?help`", inline=True)
     
     embed.set_footer(text="Parameters in [brackets] are optional, <angle brackets> are required.")
     await ctx.send(embed=embed)
