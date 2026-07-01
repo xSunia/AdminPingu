@@ -21,7 +21,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "AdminPingu Terminator Edition is OPERATIONAL."
+    return "AdminPingu is OPERATIONAL."
 
 def run():
     app.run(host='0.0.0.0', port=8080)
@@ -53,7 +53,7 @@ EPIC_LEVEL_100_CHANNEL = 1510339895032418508
 USER_ROLE_ID = 1510547520273649704        
 MEDIA_ROLE_ID = 1521875919864856714       
 
-# YENİ: LEVEL ROL MATRİSİ
+# LEVEL ROLE MATRIX
 LEVEL_ROLES = {
     5: 1521923955127226609,
     10: 1521924218479186102,
@@ -149,13 +149,13 @@ try:
     mongo_client = AsyncIOMotorClient(MONGO_URI, tlsCAFile=certifi.where(), serverSelectionTimeoutMS=5000)
     db = mongo_client["AdminPinguDB"]
     xp_collection = db["users_xp"]
-    config_collection = db["server_config"] # Haber ve Join kanallarını kaydetmek için yeni koleksiyon
+    config_collection = db["server_config"] # New collection for News and Join channels
 except Exception as e:
-    print(f"MongoDB Başlatma Hatası: {e}")
+    print(f"MongoDB Initialization Error: {e}")
 
 warning_db = {}
 user_message_cache = {} 
-# OPTİMİZASYON: Sunucu binlerce kişiye ulaşsa bile DB'yi çökertmemek için In-Memory Cache eklendi.
+# OPTIMIZATION: In-Memory Cache to prevent DB overload.
 xp_cooldown_cache = {} 
 
 # ==========================================
@@ -166,11 +166,11 @@ async def add_xp(user_id, amount):
     try:
         current_time = time.time()
         
-        # SUPER OPTİMİZASYON: Veritabanını yormadan önce RAM'den kontrol et (1 dakikalık spam koruması)
+        # SUPER OPTIMIZATION: Check RAM first before hitting DB to prevent spam (1 min cooldown)
         if current_time - xp_cooldown_cache.get(user_id, 0) < 60:
             return False, None
             
-        xp_cooldown_cache[user_id] = current_time # RAM Cache güncellemesi
+        xp_cooldown_cache[user_id] = current_time # Update RAM Cache
 
         user_data = await xp_collection.find_one({"_id": user_id})
         if not user_data:
@@ -204,7 +204,7 @@ async def add_xp(user_id, amount):
         return leveled_up, new_level
 
     except Exception as e:
-        print(f"Veritabanı erişim hatası (add_xp): {e}")
+        print(f"Database access error (add_xp): {e}")
         return False, None
 
 # ==========================================
@@ -349,7 +349,7 @@ async def daily_tech_news():
         )
         embed.set_footer(text="Daily Linux & Tech Intelligence Network")
         
-        # Resim bulmaya çalış
+        # Try to find image
         if "media_content" in entry:
             embed.set_image(url=entry.media_content[0]["url"])
 
@@ -359,7 +359,7 @@ async def daily_tech_news():
             if guild:
                 news_channel = guild.get_channel(int(conf["news_channel"]))
                 if news_channel:
-                    await news_channel.send("🚨 **Sistem Taraması Tamamlandı. Günlük Teknoloji Raporu Yüklendi!** 🚨", embed=embed)
+                    await news_channel.send("🚨 **System Scan Complete. Daily Tech Report Uploaded!** 🚨", embed=embed)
     except Exception as e:
         print(f"Tech news stream error: {e}")
 
@@ -370,7 +370,7 @@ async def daily_tech_news():
 async def on_ready():
     print(f'==========================================')
     print(f'🤖 Bot Is Online: {bot.user.name}')
-    print(f'🚀 Engine Status: TERMINATOR EDITION READY')
+    print(f'🚀 Engine Status: READY AND OPERATIONAL')
     print(f'==========================================')
     await bot.change_presence(activity=discord.Game(name="Managing Linux Servers | ?help"))
     half_hourly_reminder.start()
@@ -380,7 +380,7 @@ async def on_ready():
 
 @bot.event
 async def on_member_join(member):
-    # OTO ROL
+    # AUTO ROLE
     role = member.guild.get_role(USER_ROLE_ID)
     if role:
         try:
@@ -388,7 +388,7 @@ async def on_member_join(member):
         except Exception as e:
             print(f"Auto-role assignment error: {e}")
 
-    # YENİ: EASY-PIL GÖRSEL HOŞGELDİN EKRANI
+    # NEW: EASY-PIL VISUAL WELCOME SCREEN
     try:
         guild_config = await config_collection.find_one({"_id": str(member.guild.id)})
         if guild_config and "join_channel" in guild_config:
@@ -397,7 +397,7 @@ async def on_member_join(member):
             if join_channel:
                 background = Editor(Canvas((800, 250), color="#1e1e2e"))
                 
-                # Terminal UI Tasarımı
+                # Terminal UI Design
                 background.rectangle((0, 0), width=800, height=40, color="#11111b")
                 background.text((20, 10), "root@adminpingu:~# ./accept_connection.sh", font=Font.poppins(size=18), color="#a6e3a1")
                 
@@ -406,17 +406,17 @@ async def on_member_join(member):
                 profile = Editor(avatar_image).resize((150, 150)).circle_image()
                 background.paste(profile, (325, 60))
                 
-                # Yazılar
+                # Text
                 background.text((400, 220), f"NEW ENTITY DETECTED: {member.name.upper()}", font=Font.poppins(variant="bold", size=24), color="#cba6f7", align="center")
                 
                 file = discord.File(fp=background.image_bytes, filename="welcome.png")
-                await join_channel.send(f"🐧 Sunucu altyapısına yeni bir istemci bağlandı: {member.mention}! Güvenli iletişim protokolü başlatıldı.", file=file)
+                await join_channel.send(f"🐧 A new client has connected to the server infrastructure: {member.mention}! Secure communication protocol initiated.", file=file)
     except Exception as e:
         print(f"Join Image Render Error: {e}")
 
 @bot.event
 async def on_member_remove(member):
-    # YENİ: EASY-PIL GÖRSEL VEDA EKRANI
+    # NEW: EASY-PIL VISUAL GOODBYE SCREEN
     try:
         guild_config = await config_collection.find_one({"_id": str(member.guild.id)})
         if guild_config and "join_channel" in guild_config:
@@ -425,7 +425,7 @@ async def on_member_remove(member):
             if join_channel:
                 background = Editor(Canvas((800, 250), color="#1e1e2e"))
                 
-                # Terminal UI Tasarımı
+                # Terminal UI Design
                 background.rectangle((0, 0), width=800, height=40, color="#11111b")
                 background.text((20, 10), "root@adminpingu:~# sudo kill -9 client_process", font=Font.poppins(size=18), color="#f38ba8")
                 
@@ -434,11 +434,11 @@ async def on_member_remove(member):
                 profile = Editor(avatar_image).resize((150, 150)).circle_image()
                 background.paste(profile, (325, 60))
                 
-                # Yazılar
+                # Text
                 background.text((400, 220), f"CONNECTION TERMINATED: {member.name.upper()}", font=Font.poppins(variant="bold", size=24), color="#f38ba8", align="center")
                 
                 file = discord.File(fp=background.image_bytes, filename="goodbye.png")
-                await join_channel.send(f"⚠️ Bir istemcinin bağlantısı kesildi: **{member.name}**. Veri akışı durduruldu.", file=file)
+                await join_channel.send(f"⚠️ A client has disconnected: **{member.name}**. Data stream halted.", file=file)
     except Exception as e:
         print(f"Remove Image Render Error: {e}")
 
@@ -499,7 +499,7 @@ async def on_message(message):
             except Exception as e:
                 print(f"Profanity filter error: {e}")
 
-    # OPTİMİZASYON VE XP ZORLAŞTIRMA: %20 oranında daha yavaş (5-10 yerine 4-8 puan)
+    # OPTIMIZATION AND XP GAIN: Slower rate (4-8 points)
     try:
         gained = random.randint(4, 8) 
         leveled_up, new_level = await add_xp(message.author.id, gained)
@@ -508,13 +508,13 @@ async def on_message(message):
             level_channel = bot.get_channel(LEVEL_LOG_CHANNEL_ID)
             epic_channel = bot.get_channel(EPIC_LEVEL_100_CHANNEL)
             
-            # Gerekli ROLÜ VER
+            # ASSIGN NECESSARY ROLE
             if new_level in LEVEL_ROLES:
                 target_role = message.guild.get_role(LEVEL_ROLES[new_level])
                 if target_role:
                     await message.author.add_roles(target_role)
 
-            # ÖZEL LEVEL MESAJLARI (TERMINATOR EDITION)
+            # SPECIAL LEVEL MESSAGES
             if new_level == 5:
                 await level_channel.send(f"🎉 Congratulations {message.author.mention}, you're now **LEVEL 5**!\n🔓 **Unlocked:** Media Permission")
                 media_role = message.guild.get_role(MEDIA_ROLE_ID)
@@ -530,47 +530,47 @@ async def on_message(message):
                 await level_channel.send(f"🎉 Congratulations {message.author.mention}, you're now **LEVEL 20**! Advanced clearance granted.")
 
             elif new_level == 25:
-                embed = discord.Embed(title="🎖️ DİKKAT: ÜSTÜN HİZMET ONAYI", description=f"Sayın {message.author.mention},\n\nSunucu altyapısına yaptığınız yoğun veri akışı ve kesintisiz bağlantı sadakatiniz tarafımızca takdir edilmiştir. **Seviye 25'e** ulaştığınızı doğrulamaktan onur duyarız. Sistem sizi özel bir birim olarak kaydetti.", color=discord.Color.dark_green())
+                embed = discord.Embed(title="🎖️ ATTENTION: OUTSTANDING SERVICE ACKNOWLEDGED", description=f"Dear {message.author.mention},\n\nYour continuous activity and dedication to this server haven't gone unnoticed. We are honored to confirm your advancement to **Level 25**. The system has registered you as a distinguished unit.", color=discord.Color.dark_green())
                 await level_channel.send(embed=embed)
 
             elif new_level == 50:
-                embed = discord.Embed(title="🔥 UYARI: KRİTİK EŞİK AŞILDI 🔥", description=f"**KİMLİK DOĞRULANDI:** {message.author.mention}\n\nİnanılmaz bir başarı! Sisteminizin işlem hacmi sınırları zorluyor. **Seviye 50'ye** ulaşarak bu sunucunun temel taşlarından biri olduğunuzu kanıtladınız. Yüksek rütbeli donanım entegrasyonunuz tamamlandı. Saygılarımızı sunarız komutan!", color=discord.Color.gold())
+                embed = discord.Embed(title="🔥 ALERT: CRITICAL THRESHOLD BREACHED 🔥", description=f"**IDENTITY VERIFIED:** {message.author.mention}\n\nMassive milestone! You're officially one of the core pillars of this community. By reaching **Level 50**, you've secured high-ranking status. We salute you!", color=discord.Color.gold())
                 embed.set_image(url="https://media.giphy.com/media/xUOxfgwY8Tvj1DY5y0/giphy.gif")
                 await level_channel.send(embed=embed)
 
             elif new_level == 100:
-                msg_content = f"### 👑 GÜVENLİK DUVARLARI YIKILDI: EFSANE DOĞDU! 👑\n\nBütün sunucu node'ları dikkatine! Ağımızdaki en aktif ve kararlı istemcilerden biri olan {message.author.mention}, imkansızı başararak **SEVİYE 100** statüsüne ulaştı!\n\nSenin bu sunucuya kattığın değer, yazdığın her satır kod kadar eşsiz ve kalıcı. Sistem ağacı seni sonsuza kadar bir **EFSANE** olarak hatırlayacak. Otonom yapay zeka çekirdeği bile senin bu azmin karşısında saygıyla eğiliyor. Tebrikler, **Master User**!"
+                msg_content = f"### 👑 FIREWALLS BREACHED: A LEGEND HAS ARRIVED! 👑\n\nAttention all server nodes! {message.author.mention} just achieved the impossible and hit **LEVEL 100**!\n\nThe effort and time you've put into this community is genuinely legendary. You are officially a **Master User**. Huge congratulations on this massive milestone!"
                 await level_channel.send(msg_content)
                 if epic_channel:
                     await epic_channel.send(msg_content)
                     
     except Exception as e:
-        print(f"XP Sistemi Atlandı (Cache Koruması/Hata): {e}")
+        print(f"XP System Skipped (Cache Protection/Error): {e}")
 
     await bot.process_commands(message)
 
 # ==========================================
-# 9. COMMAND MATRIX (COMPLETELY IN ENGLISH)
+# 9. COMMAND MATRIX
 # ==========================================
 
-# --- YENİ: CONFIG COMMANDS ---
+# --- CONFIG COMMANDS ---
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def setnewschannel(ctx, channel: discord.TextChannel = None):
     """Sets a channel for automated daily tech/linux news and locks it."""
     target_channel = channel or ctx.channel
     
-    # DB'ye kaydet
+    # Save to DB
     await config_collection.update_one(
         {"_id": str(ctx.guild.id)}, 
         {"$set": {"news_channel": str(target_channel.id)}}, 
         upsert=True
     )
     
-    # Yetkisiz kişilere kitle
+    # Lock to unauthorized users
     await target_channel.set_permissions(ctx.guild.default_role, send_messages=False)
     
-    embed = discord.Embed(title="✅ Haber Ağı Yapılandırıldı", description=f"{target_channel.mention} kanalı başarılı bir şekilde Küresel Teknoloji Haberleri yayını için ayarlandı.\n\n🔒 *Güvenlik Protokolü:* Kanal normal kullanıcılara yazmaya kapatılmıştır.", color=discord.Color.blue())
+    embed = discord.Embed(title="✅ News Network Configured", description=f"{target_channel.mention} has been successfully configured for the Global Tech News broadcast.\n\n🔒 *Security Protocol:* Channel locked to standard users for writing.", color=discord.Color.blue())
     await ctx.send(embed=embed)
 
 @bot.command()
@@ -579,14 +579,14 @@ async def setjoinchannel(ctx, channel: discord.TextChannel = None):
     """Sets the channel for visual welcome/goodbye terminal banners."""
     target_channel = channel or ctx.channel
     
-    # DB'ye kaydet
+    # Save to DB
     await config_collection.update_one(
         {"_id": str(ctx.guild.id)}, 
         {"$set": {"join_channel": str(target_channel.id)}}, 
         upsert=True
     )
     
-    await ctx.send(f"✅ **Birim Yapılandırıldı:** Giren ve çıkan istemciler artık {target_channel.mention} kanalında görsel bir terminal arayüzü ile karşılanacak.")
+    await ctx.send(f"✅ **Unit Configured:** Incoming and outgoing clients will now be greeted with a visual terminal interface in {target_channel.mention}.")
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -727,7 +727,7 @@ async def ipban(ctx, member: discord.Member):
     embed.add_field(name="Firewall Status", value="`Dropping all active sessions packet streams...`", inline=False)
     await ctx.send(embed=embed)
 
-# --- SYSTEM EXPERIENCE ANALYTICS (MONGODB INTEGRATED) ---
+# --- SYSTEM EXPERIENCE ANALYTICS ---
 @bot.command()
 async def stats(ctx, member: discord.Member = None):
     """Displays highly detailed user level card analytics using MongoDB."""
@@ -929,8 +929,8 @@ async def help(ctx):
               "`?ban <user> [reason]` - Purge malicious entities permanently\n"
               "`?unban <id>` - Restore infrastructure privileges access rights\n"
               "`?ipban <user>` - Emulate a network infrastructure firewall routing ban\n"
-              "`?setnewschannel` - **[CHANNEL]** Set channel as news channel\n"
-              "`?setjoinchannel` - **[CHANNEL]**Set channel as join channel", 
+              "`?setnewschannel` - Sets up and locks the automated Linux News channel\n"
+              "`?setjoinchannel` - Sets the channel for visual welcome/goodbye banners", 
         inline=False
     )
     
