@@ -8,6 +8,7 @@ import time
 import datetime
 import os
 import aiohttp
+import asyncio  # Added for 2-step verification timeout handling
 
 # ==========================================
 # 1. RENDER KEEP-ALIVE SYSTEM (FLASK SERVER)
@@ -377,6 +378,37 @@ async def messagesendadminpingu(ctx, channel: discord.TextChannel = None):
 
 # --- ADMINISTRATIVE ROOT OPERATIONS ---
 @bot.command()
+@commands.has_permissions(manage_messages=True)
+async def clear(ctx):
+    """Clears all messages in the channel with a strict 2-step verification."""
+    def check(m):
+        return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() == 'y'
+
+    await ctx.send("⚠️ **WARNING: CORE SYSTEM PURGE INITIATED** ⚠️\nYou are about to delete **ALL** messages in this channel.\nType `y` within 30 seconds to proceed.")
+    
+    try:
+        await bot.wait_for('message', check=check, timeout=30.0)
+    except asyncio.TimeoutError:
+        return await ctx.send("❌ **Timeout:** Channel wipe sequence aborted due to inactivity.")
+
+    await ctx.send("🚨 **FINAL SECURITY CHECK:** 🚨\nThis action is **IRREVERSIBLE**. Type `y` one last time to authorize full data deletion.")
+    
+    try:
+        await bot.wait_for('message', check=check, timeout=30.0)
+    except asyncio.TimeoutError:
+        return await ctx.send("❌ **Timeout:** Channel wipe sequence aborted due to inactivity.")
+
+    await ctx.send("🔄 **Authorization Accepted:** Executing complete channel purge protocol...", delete_after=3)
+    
+    try:
+        deleted = await ctx.channel.purge(limit=None)
+        msg = await ctx.send(f"✅ **System Wipe Complete:** Successfully deleted `{len(deleted)}` messages from the database.")
+        await asyncio.sleep(5)
+        await msg.delete()
+    except Exception as e:
+        await ctx.send(f"❌ **System Error during purge:** {e}")
+
+@bot.command()
 @commands.has_permissions(administrator=True)
 async def roles(ctx):
     """Prints the Dropdown Role Selection panel."""
@@ -662,6 +694,7 @@ async def help(ctx):
               "`?sudounlock` - Open locked down channel lanes\n"
               "`?mute <user> [h]` - Silence entity via structural timeout\n"
               "`?unmute <user>` - Lift channel silences restrictions\n"
+              "`?clear` - Execute 2-step verification massive channel purge\n"
               "`?warning <user> [reason]` - Apply warning registry indices\n"
               "`?ban <user> [reason]` - Purge malicious entities permanently\n"
               "`?unban <id>` - Restore infrastructure privileges access rights\n"
