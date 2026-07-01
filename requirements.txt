@@ -5,3 +5,6 @@ certifi
 aiohttp
 easy-pil
 feedparser
+python-dotenv
+aiodns
+cchardet
