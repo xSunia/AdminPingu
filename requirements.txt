@@ -1,4 +1,5 @@
 discord.py
 flask
-aiohttp
 motor
+certifi
+aiohttp
