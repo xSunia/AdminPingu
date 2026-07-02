@@ -119,7 +119,6 @@ PYTHON_TIPS = [
     "Use `enumerate()` if you need both the index and the value while looping through an iterable."
 ]
 
-# Updated Distro List (Included Black Arch, Parrot OS, CachyOS)
 ALL_DISTRO_ROLES = [
     1521868543799328808, 1521870392472502344, 1521870674669338654, 1521871074994950295, 1521871078308184074,
     1521870173861056655, 1521871399403393044, 1521871679368986655, 1521871896117776468,
@@ -134,44 +133,37 @@ ALL_GPU_ROLES = [1521879270530486414, 1521879224951246928, 1521879315648614410]
 # ==========================================
 # 4. SMART PROFANITY & BYPASS FILTER ALGORITHM
 # ==========================================
-# Comprehensive list of the top 100 strictest banned words
 STRICT_BANNED_WORDS = {
     "nigger", "nigga", "porn", "porno", "sex", "pussy", "fuck", 
     "bitch", "cunt", "dick", "asshole", "slut", "whore", 
     "faggot", "childporn", "rape", "pusy", "fck", "btch", "cp"
 }
 
-# Extreme severe words that should never exist even if spaces are removed
 SQUISHED_SEVERE_WORDS = ["fuck", "nigger", "nigga", "porn", "pussy", "bitch", "faggot", "whore"]
 
-# L33t speak mapping to catch character replacements
 LEET_DICT = {'@': 'a', '4': 'a', '1': 'i', '!': 'i', '0': 'o', '3': 'e', '$': 's', '5': 's', '7': 't', '+': 't', 'v': 'u'}
 
 def clean_text_for_filter(text):
     text = text.lower()
     for k, v in LEET_DICT.items():
         text = text.replace(k, v)
-    text = unidecode(text) # Removes accents like ü, ö, é, ù
+    text = unidecode(text)
     return text
 
 def is_heavy_swear(text):
     cleaned_text = clean_text_for_filter(text)
     
-    # Stage 1: Word Boundary Check (Handles standard usage and repeated letters)
     words = re.findall(r'[a-z]+', cleaned_text)
     for word in words:
         dedup_word = re.sub(r'(.)\1+', r'\1', word)
         if word in STRICT_BANNED_WORDS or dedup_word in STRICT_BANNED_WORDS:
             return True
             
-    # Stage 2: Extreme Spaced/Symbol Bypass (Squished Text Check)
-    # E.g., catches "f u c k" or "f.u_c-k"
     squished_text = re.sub(r'[^a-z]', '', cleaned_text)
     squished_dedup = re.sub(r'(.)\1+', r'\1', squished_text)
     
     for severe_word in SQUISHED_SEVERE_WORDS:
         if severe_word in squished_text or severe_word in squished_dedup:
-            # Prevent Scunthorpe problem (e.g., "class exam" -> classexam -> doesn't trigger because "sex" is omitted from severe list)
             return True
 
     return False
@@ -191,21 +183,21 @@ except Exception as e:
 
 warning_db = {}
 user_message_cache = {} 
-xp_cooldown_cache = {} 
+xp_message_counter = {} # New specific cache to count every 3 messages
 LAST_NEWS_URL = "" 
 
 # ==========================================
 # 6. HELPER FUNCTIONS & ENGINE
 # ==========================================
+
+def get_xp_requirement(level):
+    """Calculates the total XP required to reach a specific level (Harder exponential curve)"""
+    return 50 * (level ** 2)
+
 async def add_xp(user_id, amount):
     try:
         current_time = time.time()
-        # 60 second cooldown remains intact for fair leveling
-        if current_time - xp_cooldown_cache.get(user_id, 0) < 60:
-            return False, None
-            
-        xp_cooldown_cache[user_id] = current_time 
-
+        
         user_data = await xp_collection.find_one({"_id": user_id})
         if not user_data:
             user_data = {"_id": user_id, "total": 0, "daily": 0, "weekly": 0, "monthly": 0, "last_msg": 0, "level": 1}
@@ -217,7 +209,7 @@ async def add_xp(user_id, amount):
         new_level = user_data["level"]
         
         leveled_up = False
-        next_level_xp = new_level * 50
+        next_level_xp = get_xp_requirement(new_level)
         
         if new_total >= next_level_xp:
             new_level += 1
@@ -246,29 +238,43 @@ async def add_xp(user_id, amount):
 # ==========================================
 class DistroSelect(Select):
     def __init__(self, placeholder, options, custom_id):
-        # max_values set to 2 to perfectly support dual-boot scenarios!
-        super().__init__(placeholder=placeholder, min_values=1, max_values=2, options=options, custom_id=custom_id)
+        # min_values=0 allows users to deselect/clear their roles from the dropdown completely
+        super().__init__(placeholder=placeholder, min_values=0, max_values=2, options=options, custom_id=custom_id)
+        # Store only the IDs belonging to this specific menu block
+        self.menu_role_ids = [int(opt.value) for opt in options]
 
     async def callback(self, interaction: discord.Interaction):
         selected_role_ids = [int(v) for v in self.values]
-        roles_to_add = []
         
+        # Cross-menu validation to perfectly support dual-boot setups!
+        other_os_roles = [r for r in interaction.user.roles if r.id in ALL_DISTRO_ROLES and r.id not in self.menu_role_ids]
+        
+        if len(other_os_roles) + len(selected_role_ids) > 2:
+            return await interaction.response.send_message(
+                "❌ **Dual-Boot Limit Reached:** You can only have a maximum of 2 OS roles across all menus! Please deselect an OS from another menu first.", 
+                ephemeral=True
+            )
+            
+        roles_to_add = []
         for role_id in selected_role_ids:
             role = interaction.guild.get_role(role_id)
             if role:
                 roles_to_add.append(role)
                 
-        if not roles_to_add:
-            return await interaction.response.send_message("❌ Roles not found on the server!", ephemeral=True)
-            
-        # Removes old OS roles that are NOT currently selected by the user
-        roles_to_remove = [r for r in interaction.user.roles if r.id in ALL_DISTRO_ROLES and r.id not in selected_role_ids]
+        # Scoped removal: Only remove unselected roles that belong to THIS specific dropdown menu.
+        roles_to_remove = [r for r in interaction.user.roles if r.id in self.menu_role_ids and r.id not in selected_role_ids]
+        
         if roles_to_remove:
             await interaction.user.remove_roles(*roles_to_remove)
             
-        await interaction.user.add_roles(*roles_to_add)
-        role_names = " & ".join([r.name for r in roles_to_add])
-        await interaction.response.send_message(f"✅ You have successfully claimed the `{role_names}` role(s)!", ephemeral=True)
+        if roles_to_add:
+            await interaction.user.add_roles(*roles_to_add)
+            
+        if not roles_to_add and not roles_to_remove:
+             return await interaction.response.send_message("✅ No changes were made.", ephemeral=True)
+             
+        role_names = " & ".join([r.name for r in roles_to_add]) if roles_to_add else "Cleared"
+        await interaction.response.send_message(f"✅ Menu Updated! Current selection for this category: `{role_names}`", ephemeral=True)
 
 class GPUSelect(Select):
     def __init__(self):
@@ -277,9 +283,15 @@ class GPUSelect(Select):
             discord.SelectOption(label="AMD Graphics", value="1521879224951246928", emoji="🟥"),
             discord.SelectOption(label="Intel Graphics", value="1521879315648614410", emoji="🟦")
         ]
-        super().__init__(placeholder="Select Your Graphics Driver", min_values=1, max_values=1, options=options, custom_id="gpu_select")
+        super().__init__(placeholder="Select Your Graphics Driver", min_values=0, max_values=1, options=options, custom_id="gpu_select")
 
     async def callback(self, interaction: discord.Interaction):
+        if not self.values:
+            roles_to_remove = [r for r in interaction.user.roles if r.id in ALL_GPU_ROLES]
+            if roles_to_remove:
+                await interaction.user.remove_roles(*roles_to_remove)
+            return await interaction.response.send_message("✅ Graphics Driver selection cleared.", ephemeral=True)
+            
         selected_role_id = int(self.values[0])
         role = interaction.guild.get_role(selected_role_id)
         
@@ -542,7 +554,7 @@ async def on_message(message):
             user_message_cache[message.author.id] = [] 
             return
 
-        # PROFANITY CONTROL (Now unbreakable)
+        # PROFANITY CONTROL
         if is_heavy_swear(message.content):
             try:
                 await message.delete()
@@ -554,44 +566,52 @@ async def on_message(message):
             except Exception as e:
                 print(f"Profanity filter error: {e}")
 
-    # XP SYSTEM (Optimized for ~35-45 mins of chatting to hit Level 10)
+    # OPTIMIZED HARDCORE XP SYSTEM (2-6 XP every 3 messages)
     try:
-        gained = random.randint(10, 15) 
-        leveled_up, new_level = await add_xp(message.author.id, gained)
+        author_id = message.author.id
+        if author_id not in xp_message_counter:
+            xp_message_counter[author_id] = 0
+            
+        xp_message_counter[author_id] += 1
         
-        if leveled_up and new_level:
-            level_channel = bot.get_channel(LEVEL_LOG_CHANNEL_ID)
-            epic_channel = bot.get_channel(EPIC_LEVEL_100_CHANNEL)
+        if xp_message_counter[author_id] >= 3:
+            xp_message_counter[author_id] = 0 # Reset counter after triggering
+            gained = random.randint(2, 6) 
+            leveled_up, new_level = await add_xp(author_id, gained)
             
-            if level_channel:
-                await level_channel.send(f"🆙 Awesome! {message.author.mention} just reached **Level {new_level}**! 🎉")
-            
-            if new_level in LEVEL_ROLES:
-                target_role = message.guild.get_role(LEVEL_ROLES[new_level])
-                if target_role:
-                    await message.author.add_roles(target_role)
+            if leveled_up and new_level:
+                level_channel = bot.get_channel(LEVEL_LOG_CHANNEL_ID)
+                epic_channel = bot.get_channel(EPIC_LEVEL_100_CHANNEL)
+                
+                if level_channel:
+                    await level_channel.send(f"🆙 Awesome! {message.author.mention} just reached **Level {new_level}**! 🎉")
+                
+                if new_level in LEVEL_ROLES:
+                    target_role = message.guild.get_role(LEVEL_ROLES[new_level])
+                    if target_role:
+                        await message.author.add_roles(target_role)
 
-            if new_level == 5:
-                await level_channel.send(f"🎉 Congrats {message.author.mention}, you're now **LEVEL 5**! Keep chatting to unlock more perks.")
-            elif new_level == 10:
-                await level_channel.send(f"🎉 Amazing {message.author.mention}, you're now **LEVEL 10**! You've officially unlocked Media Permissions. 📸")
-                media_role = message.guild.get_role(MEDIA_ROLE_ID)
-                if media_role: await message.author.add_roles(media_role)
-            elif new_level == 25:
-                embed = discord.Embed(title="🎖️ Outstanding Activity Noticed", description=f"{message.author.mention}, your dedication is real! Welcome to **Level 25**. Keep it up!", color=discord.Color.dark_green())
-                await level_channel.send(embed=embed)
-            elif new_level == 50:
-                embed = discord.Embed(title="🔥 Level 50 Milestone Reached! 🔥", description=f"Massive congrats to {message.author.mention}! Reaching Level 50 is no joke. We salute your grind!", color=discord.Color.gold())
-                embed.set_image(url="https://media.giphy.com/media/xUOxfgwY8Tvj1DY5y0/giphy.gif")
-                await level_channel.send(embed=embed)
-            elif new_level == 100:
-                msg_content = f"👑 **A LEGEND HAS ARRIVED!** 👑\n\nAttention everyone! {message.author.mention} just achieved the impossible and hit **LEVEL 100**! Massive congratulations!"
-                await level_channel.send(msg_content)
-                if epic_channel:
-                    await epic_channel.send(msg_content)
-                    
-    except Exception:
-        pass
+                if new_level == 5:
+                    if level_channel: await level_channel.send(f"🎉 Congrats {message.author.mention}, you're now **LEVEL 5**! Keep chatting to unlock more perks.")
+                elif new_level == 10:
+                    if level_channel: await level_channel.send(f"🎉 Amazing {message.author.mention}, you're now **LEVEL 10**! You've officially unlocked Media Permissions. 📸")
+                    media_role = message.guild.get_role(MEDIA_ROLE_ID)
+                    if media_role: await message.author.add_roles(media_role)
+                elif new_level == 25:
+                    embed = discord.Embed(title="🎖️ Outstanding Activity Noticed", description=f"{message.author.mention}, your dedication is real! Welcome to **Level 25**. Keep it up!", color=discord.Color.dark_green())
+                    if level_channel: await level_channel.send(embed=embed)
+                elif new_level == 50:
+                    embed = discord.Embed(title="🔥 Level 50 Milestone Reached! 🔥", description=f"Massive congrats to {message.author.mention}! Reaching Level 50 is no joke. We salute your grind!", color=discord.Color.gold())
+                    embed.set_image(url="https://media.giphy.com/media/xUOxfgwY8Tvj1DY5y0/giphy.gif")
+                    if level_channel: await level_channel.send(embed=embed)
+                elif new_level == 100:
+                    msg_content = f"👑 **A LEGEND HAS ARRIVED!** 👑\n\nAttention everyone! {message.author.mention} just achieved the impossible and hit **LEVEL 100**! Massive congratulations!"
+                    if level_channel: await level_channel.send(msg_content)
+                    if epic_channel:
+                        await epic_channel.send(msg_content)
+                        
+    except Exception as e:
+        print(f"XP Processing Error: {e}")
 
     await bot.process_commands(message)
 
@@ -662,7 +682,7 @@ async def clear(ctx):
 async def roles(ctx):
     role_embed = discord.Embed(
         title="Choose Your OS & Hardware", 
-        description="Select your preferred distributions and graphics drivers from the menus below.", 
+        description="Select your preferred distributions and graphics drivers from the menus below.\n*(Note: You can select up to 2 OS roles across all menus for Dual-Boot configurations!)*", 
         color=discord.Color.dark_theme()
     )
     await ctx.send(embed=role_embed, view=RolesView())
@@ -748,9 +768,9 @@ async def stats(ctx, member: discord.Member = None):
     current_xp = user_data["total"]
     current_level = user_data["level"]
     
-    # Progress Calculation (Visually accurate within the current level bounds)
-    prev_level_xp = (current_level - 1) * 50
-    next_level_xp = current_level * 50
+    # Accurate XP Progress Calculation based on the new exponential difficulty curve
+    prev_level_xp = get_xp_requirement(current_level - 1) if current_level > 1 else 0
+    next_level_xp = get_xp_requirement(current_level)
     
     xp_into_level = current_xp - prev_level_xp
     xp_needed_for_level = next_level_xp - prev_level_xp 
