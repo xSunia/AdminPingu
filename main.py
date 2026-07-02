@@ -129,7 +129,9 @@ ALL_DISTRO_ROLES = [
     1521870225228955798, 1521872173688422420, 1521872360393670819, 1521872534117679206, 1521872635968098344,
     1521872683803873432, 1521872759691542588, 1521873026776301608, 1521873129868365964,
     1521909235594825941, 1521909235594825999,
-    1522137195102867526, 1522137253856415784, 1522143963904081920 
+    1522137195102867526, 1522137253856415784, 1522143963904081920,
+    1521909451739893982, 1521909341802725427, 1522212167393214514, 1522212092663300248,
+    1522211951709519872, 1522211033073324234, 1522211796532854826, 1522211599744499834
 ]
 ALL_GPU_ROLES = [1521879270530486414, 1521879224951246928, 1521879315648614410]
 
@@ -337,12 +339,24 @@ class RolesView(View):
         ]
         self.add_item(DistroSelect(placeholder="Debian & Ubuntu-based", options=deb_ubu_opts, custom_id="deb_ubu_menu"))
 
-        win_bsd_opts = [
+        win_opts = [
             discord.SelectOption(label="Windows 11", value="1521909235594825941"),
-            discord.SelectOption(label="FreeBSD", value="1521909235594825999"),
-            discord.SelectOption(label="Windows 10", value="1521909403496742973")
+            discord.SelectOption(label="Windows 10", value="1521909403496742973"),
+            discord.SelectOption(label="Windows 8", value="1521909451739893982"),
+            discord.SelectOption(label="Windows 7", value="1521909341802725427"),
+            discord.SelectOption(label="Windows Vista", value="1522212167393214514"),
+            discord.SelectOption(label="Windows XP", value="1522212092663300248")
         ]
-        self.add_item(DistroSelect(placeholder="Windows & FreeBSD", options=win_bsd_opts, custom_id="win_bsd_menu"))
+        self.add_item(DistroSelect(placeholder="Windows", options=win_opts, custom_id="win_menu"))
+
+        bsd_opts = [
+            discord.SelectOption(label="FreeBSD", value="1521909235594825999"),
+            discord.SelectOption(label="GhostBSD", value="1522211951709519872"),
+            discord.SelectOption(label="OpenBSD", value="1522211033073324234"),
+            discord.SelectOption(label="DragonFly BSD", value="1522211796532854826"),
+            discord.SelectOption(label="NetBSD", value="1522211599744499834")
+        ]
+        self.add_item(DistroSelect(placeholder="BSD Family", options=bsd_opts, custom_id="bsd_menu"))
 
         indep_opts = [
             discord.SelectOption(label="Gentoo", value="1521870225228955798"),
