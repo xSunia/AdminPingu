@@ -16,9 +16,6 @@ from unidecode import unidecode
 from easy_pil import Editor, Canvas, Font, load_image_async
 from motor.motor_asyncio import AsyncIOMotorClient
 
-# ==========================================
-# 1. RENDER KEEP-ALIVE SYSTEM
-# ==========================================
 app = Flask('')
 
 @app.route('/')
@@ -32,9 +29,6 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
-# ==========================================
-# 2. BOT INITIALIZATION & INTENTS
-# ==========================================
 intents = discord.Intents.default()
 intents.messages = True
 intents.message_content = True
@@ -43,9 +37,6 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix="?", intents=intents, help_command=None)
 
-# ==========================================
-# 3. DATA STRUCTURES, ROLES & CONFIGURATIONS
-# ==========================================
 LOG_CHANNEL_ID = 123456789012345678       
 WARNINGS_CHANNEL_ID = 1521880436270301354 
 LEVEL_LOG_CHANNEL_ID = 1521880096854769785
@@ -55,7 +46,6 @@ EPIC_LEVEL_100_CHANNEL = 1510339895032418508
 USER_ROLE_ID = 1510547520273649704        
 MEDIA_ROLE_ID = 1521875919864856714       
 
-# YENI: Etkinlik kanalının ID'sini geçici olarak tutacağımız değişken
 ACTIVE_EVENT_CHANNEL_ID = None
 
 LEVEL_ROLES = {
@@ -92,7 +82,6 @@ SERVER_RULES = [
 LINUX_GIFS = [
     "https://media.giphy.com/media/LmNwrBhejkK9EFP504/giphy.gif",
     "https://media.giphy.com/media/i8XwYIrNqMEA8/giphy.gif",
-    "https://media.giphy.com/media/VbKLOdvYXBEgw/giphy.gif",
     "https://media.tenor.com/7D-R9eYf6W8AAAAC/linux-penguin.gif",
     "https://media.tenor.com/V-nF03F5h20AAAAC/linux-arch.gif"
 ]
@@ -131,13 +120,11 @@ ALL_DISTRO_ROLES = [
     1521909235594825941, 1521909235594825999,
     1522137195102867526, 1522137253856415784, 1522143963904081920,
     1521909451739893982, 1521909341802725427, 1522212167393214514, 1522212092663300248,
-    1522211951709519872, 1522211033073324234, 1522211796532854826, 1522211599744499834
+    1522211951709519872, 1522211033073324234, 1522211796532854826, 1522211599744499834,
+    1521909403496742973
 ]
 ALL_GPU_ROLES = [1521879270530486414, 1521879224951246928, 1521879315648614410]
 
-# ==========================================
-# 4. SMART PROFANITY & BYPASS FILTER ALGORITHM
-# ==========================================
 STRICT_BANNED_WORDS = {
     "nigger", "nigga", "porn", "porno", "sex", "pussy", "fuck", 
     "bitch", "cunt", "dick", "asshole", "slut", "whore", 
@@ -157,25 +144,18 @@ def clean_text_for_filter(text):
 
 def is_heavy_swear(text):
     cleaned_text = clean_text_for_filter(text)
-    
     words = re.findall(r'[a-z]+', cleaned_text)
     for word in words:
         dedup_word = re.sub(r'(.)\1+', r'\1', word)
         if word in STRICT_BANNED_WORDS or dedup_word in STRICT_BANNED_WORDS:
             return True
-            
     squished_text = re.sub(r'[^a-z]', '', cleaned_text)
     squished_dedup = re.sub(r'(.)\1+', r'\1', squished_text)
-    
     for severe_word in SQUISHED_SEVERE_WORDS:
         if severe_word in squished_text or severe_word in squished_dedup:
             return True
-
     return False
 
-# ==========================================
-# 5. MONGODB DATABASE SETUP & CACHING
-# ==========================================
 MONGO_URI = os.environ.get("MONGO_URI")
 
 try:
@@ -188,38 +168,28 @@ except Exception as e:
 
 warning_db = {}
 user_message_cache = {} 
-xp_message_counter = {} # New specific cache to count every 3 messages
+xp_message_counter = {} 
 LAST_NEWS_URL = "" 
 
-# ==========================================
-# 6. HELPER FUNCTIONS & ENGINE
-# ==========================================
-
 def get_xp_requirement(level):
-    
     return int(100 * (level ** 1.15))
 
 async def add_xp(user_id, amount):
     try:
         current_time = time.time()
-        
         user_data = await xp_collection.find_one({"_id": user_id})
         if not user_data:
             user_data = {"_id": user_id, "total": 0, "daily": 0, "weekly": 0, "monthly": 0, "last_msg": 0, "level": 1}
-        
         new_total = user_data["total"] + amount
         new_daily = user_data.get("daily", 0) + amount
         new_weekly = user_data.get("weekly", 0) + amount
         new_monthly = user_data.get("monthly", 0) + amount
         new_level = user_data["level"]
-        
         leveled_up = False
         next_level_xp = get_xp_requirement(new_level)
-        
         if new_total >= next_level_xp:
             new_level += 1
             leveled_up = True
-            
         await xp_collection.update_one(
             {"_id": user_id},
             {"$set": {
@@ -233,51 +203,35 @@ async def add_xp(user_id, amount):
             upsert=True
         )
         return leveled_up, new_level
-
     except Exception as e:
         print(f"Database access error (add_xp): {e}")
         return False, None
 
-# ==========================================
-# 7. INTERACTIVE DROPDOWN ROLES (GUI VIEW)
-# ==========================================
 class DistroSelect(Select):
     def __init__(self, placeholder, options, custom_id):
-        # min_values=0 allows users to deselect/clear their roles from the dropdown completely
         super().__init__(placeholder=placeholder, min_values=0, max_values=2, options=options, custom_id=custom_id)
-        # Store only the IDs belonging to this specific menu block
         self.menu_role_ids = [int(opt.value) for opt in options]
 
     async def callback(self, interaction: discord.Interaction):
         selected_role_ids = [int(v) for v in self.values]
-        
-        # Cross-menu validation to perfectly support dual-boot setups!
         other_os_roles = [r for r in interaction.user.roles if r.id in ALL_DISTRO_ROLES and r.id not in self.menu_role_ids]
-        
         if len(other_os_roles) + len(selected_role_ids) > 2:
             return await interaction.response.send_message(
                 "❌ **Dual-Boot Limit Reached:** You can only have a maximum of 2 OS roles across all menus! Please deselect an OS from another menu first.", 
                 ephemeral=True
             )
-            
         roles_to_add = []
         for role_id in selected_role_ids:
             role = interaction.guild.get_role(role_id)
             if role:
                 roles_to_add.append(role)
-                
-        # Scoped removal: Only remove unselected roles that belong to THIS specific dropdown menu.
         roles_to_remove = [r for r in interaction.user.roles if r.id in self.menu_role_ids and r.id not in selected_role_ids]
-        
         if roles_to_remove:
             await interaction.user.remove_roles(*roles_to_remove)
-            
         if roles_to_add:
             await interaction.user.add_roles(*roles_to_add)
-            
         if not roles_to_add and not roles_to_remove:
              return await interaction.response.send_message("✅ No changes were made.", ephemeral=True)
-             
         role_names = " & ".join([r.name for r in roles_to_add]) if roles_to_add else "Cleared"
         await interaction.response.send_message(f"✅ Menu Updated! Current selection for this category: `{role_names}`", ephemeral=True)
 
@@ -296,24 +250,19 @@ class GPUSelect(Select):
             if roles_to_remove:
                 await interaction.user.remove_roles(*roles_to_remove)
             return await interaction.response.send_message("✅ Graphics Driver selection cleared.", ephemeral=True)
-            
         selected_role_id = int(self.values[0])
         role = interaction.guild.get_role(selected_role_id)
-        
         if not role:
             return await interaction.response.send_message("❌ Role not found on the server!", ephemeral=True)
-            
         roles_to_remove = [r for r in interaction.user.roles if r.id in ALL_GPU_ROLES and r.id != selected_role_id]
         if roles_to_remove:
             await interaction.user.remove_roles(*roles_to_remove)
-            
         await interaction.user.add_roles(role)
         await interaction.response.send_message(f"✅ You have successfully claimed the `{role.name}` driver role!", ephemeral=True)
 
 class RolesView(View):
     def __init__(self):
         super().__init__(timeout=None)
-        
         arch_opts = [
             discord.SelectOption(label="Arch Linux", value="1521868543799328808"),
             discord.SelectOption(label="Manjaro", value="1521870392472502344"),
@@ -324,7 +273,6 @@ class RolesView(View):
             discord.SelectOption(label="CachyOS", value="1522143963904081920")
         ]
         self.add_item(DistroSelect(placeholder="Arch / Arch-based", options=arch_opts, custom_id="arch_menu"))
-        
         deb_ubu_opts = [
             discord.SelectOption(label="Debian", value="1521870173861056655"),
             discord.SelectOption(label="Ubuntu", value="1521870110552227910"),
@@ -338,26 +286,20 @@ class RolesView(View):
             discord.SelectOption(label="Parrot OS", value="1522137253856415784")
         ]
         self.add_item(DistroSelect(placeholder="Debian & Ubuntu-based", options=deb_ubu_opts, custom_id="deb_ubu_menu"))
-
-        win_opts = [
+        win_bsd_opts = [
             discord.SelectOption(label="Windows 11", value="1521909235594825941"),
             discord.SelectOption(label="Windows 10", value="1521909403496742973"),
             discord.SelectOption(label="Windows 8", value="1521909451739893982"),
             discord.SelectOption(label="Windows 7", value="1521909341802725427"),
             discord.SelectOption(label="Windows Vista", value="1522212167393214514"),
-            discord.SelectOption(label="Windows XP", value="1522212092663300248")
-        ]
-        self.add_item(DistroSelect(placeholder="Windows", options=win_opts, custom_id="win_menu"))
-
-        bsd_opts = [
+            discord.SelectOption(label="Windows XP", value="1522212092663300248"),
             discord.SelectOption(label="FreeBSD", value="1521909235594825999"),
             discord.SelectOption(label="GhostBSD", value="1522211951709519872"),
             discord.SelectOption(label="OpenBSD", value="1522211033073324234"),
             discord.SelectOption(label="DragonFly BSD", value="1522211796532854826"),
             discord.SelectOption(label="NetBSD", value="1522211599744499834")
         ]
-        self.add_item(DistroSelect(placeholder="BSD Family", options=bsd_opts, custom_id="bsd_menu"))
-
+        self.add_item(DistroSelect(placeholder="Windows & BSD Family", options=win_bsd_opts, custom_id="win_bsd_menu"))
         indep_opts = [
             discord.SelectOption(label="Gentoo", value="1521870225228955798"),
             discord.SelectOption(label="Nobara", value="1521872173688422420"),
@@ -372,9 +314,6 @@ class RolesView(View):
         self.add_item(DistroSelect(placeholder="Independent", options=indep_opts, custom_id="indep_menu"))
         self.add_item(GPUSelect())
 
-# ==========================================
-# 8. BG LOOP TASKS (SCHEDULER)
-# ==========================================
 @tasks.loop(minutes=30)
 async def half_hourly_reminder():
     await bot.wait_until_ready()
@@ -408,14 +347,10 @@ async def daily_tech_news():
         feed = feedparser.parse("https://www.omgubuntu.co.uk/feed")
         if not feed.entries:
             return
-            
         entry = feed.entries[0]
-        
         if entry.link == LAST_NEWS_URL:
             return
-            
         LAST_NEWS_URL = entry.link
-        
         embed = discord.Embed(
             title=f"📰 {entry.title}", 
             url=entry.link, 
@@ -423,10 +358,8 @@ async def daily_tech_news():
             color=discord.Color.teal()
         )
         embed.set_footer(text="Linux & Tech Intelligence Network")
-        
         if "media_content" in entry:
             embed.set_image(url=entry.media_content[0]["url"])
-
         configs = await config_collection.find({"news_channel": {"$exists": True}}).to_list(length=100)
         for conf in configs:
             guild = bot.get_guild(int(conf["_id"]))
@@ -437,66 +370,44 @@ async def daily_tech_news():
     except Exception as e:
         print(f"Tech news stream error: {e}")
 
-# YENI: Her Pazar UTC 12:00'da tetiklenecek Event Loop'u
 @tasks.loop(time=datetime.time(hour=12, minute=0, tzinfo=datetime.timezone.utc))
 async def sunday_xp_event():
     await bot.wait_until_ready()
     global ACTIVE_EVENT_CHANNEL_ID
-    
-    # Bugün Pazar değilse (Python'da Pazartesi=0, Pazar=6'dır) işlemi iptal et
     now = datetime.datetime.now(datetime.timezone.utc)
     if now.weekday() != 6: 
         return
-        
     category = bot.get_channel(1510339895032418506)
     if not category:
         return
-        
     guild = category.guild
-    
     try:
-        # Kanalı 10 saniye slowmode ile oluşturuyoruz
         event_channel = await guild.create_text_channel(
             name="🔥-triple-xp-chaos",
             category=category,
             topic="3X XP EVENT CHANNEL! 10s cooldown. Spam filter disabled. Deletes in 3 hours.",
             slowmode_delay=10
         )
-        
         ACTIVE_EVENT_CHANNEL_ID = event_channel.id
-        
-        # Etkinlik kanalına Efsanevi Giriş Mesajı
         await event_channel.send(
             "🚨 **THE RIFT HAS OPENED! TRIPLE XP IS NOW ACTIVE!** 🚨\n\n"
             "Welcome to the Chaos Zone. For the next **3 HOURS**, every message you send here grants **3X XP**! "
             "The standard bot spam filter has been lifted, but you must survive the 10-second cooldown.\n\n"
             "Grind your hearts out. The countdown to destruction has begun! ⏳"
         )
-        
-        # Ana kanala duyuru geç
         announcement_channel = bot.get_channel(1522172546714308648)
         if announcement_channel:
             await announcement_channel.send(f"⚡ **THE SUNDAY EVENT HAS BEGUN!** A dimensional rift just opened at {event_channel.mention}. Get in there for **3X XP**! The channel will self-destruct in exactly 3 hours.")
-            
-        # Tam 3 Saat (10800 saniye) bekle
         await asyncio.sleep(3 * 60 * 60)
-        
-        # Süre dolunca kanalı yok et
         if event_channel:
             await event_channel.delete()
-            
         ACTIVE_EVENT_CHANNEL_ID = None
-        
         if announcement_channel:
             await announcement_channel.send("🛑 **THE SUNDAY 3X XP EVENT HAS CONCLUDED!** The rift has collapsed and the channel has been erased. See you all next week!")
-            
     except Exception as e:
         print(f"Sunday Event Error: {e}")
         ACTIVE_EVENT_CHANNEL_ID = None
 
-# ==========================================
-# 9. BOT LIFE-CYCLE & AUTOMATION EVENTS
-# ==========================================
 @bot.event
 async def on_ready():
     print('==========================================')
@@ -507,7 +418,7 @@ async def on_ready():
     half_hourly_reminder.start()
     reset_daily_xp.start()
     daily_tech_news.start()
-    sunday_xp_event.start() # YENI: Event Task'ı başlatıldı
+    sunday_xp_event.start() 
     bot.add_view(RolesView())
 
 @bot.event
@@ -518,7 +429,6 @@ async def on_member_join(member):
             await member.add_roles(role)
         except Exception:
             pass
-
     terminal_channel = bot.get_channel(1510339895032418508)
     if terminal_channel:
         linux_msg = (
@@ -533,24 +443,18 @@ async def on_member_join(member):
             f"> 🏷️ Roles: <#1521868274240065597>\n"
         )
         await terminal_channel.send(linux_msg)
-
     try:
         guild_config = await config_collection.find_one({"_id": str(member.guild.id)})
         if guild_config and "join_channel" in guild_config:
             join_channel = member.guild.get_channel(int(guild_config["join_channel"]))
-            
             if join_channel:
                 background = Editor(Canvas((800, 250), color="#1e1e2e"))
-                
                 background.rectangle((0, 0), width=800, height=40, color="#11111b")
                 background.text((20, 10), "root@adminpingu:~# ./accept_connection.sh", font=Font.poppins(size=18), color="#a6e3a1")
-                
                 avatar_image = await load_image_async(str(member.display_avatar.url))
                 profile = Editor(avatar_image).resize((150, 150)).circle_image()
                 background.paste(profile, (325, 60))
-                
                 background.text((400, 220), f"NEW USER: {member.name.upper()}", font=Font.poppins(variant="bold", size=24), color="#cba6f7", align="center")
-                
                 file = discord.File(fp=background.image_bytes, filename="welcome.png")
                 await join_channel.send(f"🐧 A new user has connected: {member.mention}! Welcome aboard.", file=file)
     except Exception as e:
@@ -562,19 +466,14 @@ async def on_member_remove(member):
         guild_config = await config_collection.find_one({"_id": str(member.guild.id)})
         if guild_config and "join_channel" in guild_config:
             join_channel = member.guild.get_channel(int(guild_config["join_channel"]))
-            
             if join_channel:
                 background = Editor(Canvas((800, 250), color="#1e1e2e"))
-                
                 background.rectangle((0, 0), width=800, height=40, color="#11111b")
                 background.text((20, 10), "root@adminpingu:~# sudo kill -9 client_process", font=Font.poppins(size=18), color="#f38ba8")
-                
                 avatar_image = await load_image_async(str(member.display_avatar.url))
                 profile = Editor(avatar_image).resize((150, 150)).circle_image()
                 background.paste(profile, (325, 60))
-                
                 background.text((400, 220), f"DISCONNECTED: {member.name.upper()}", font=Font.poppins(variant="bold", size=24), color="#f38ba8", align="center")
-                
                 file = discord.File(fp=background.image_bytes, filename="goodbye.png")
                 await join_channel.send(f"⚠️ **{member.name}** has left the server.", file=file)
     except Exception as e:
@@ -585,7 +484,6 @@ async def apply_warning(member, reason, guild):
         warning_db[member.id] = 0
     warning_db[member.id] += 1
     total_warns = warning_db[member.id]
-    
     warn_channel = bot.get_channel(WARNINGS_CHANNEL_ID)
     if warn_channel:
         embed = discord.Embed(title="⚠️ System Warning Issued", color=discord.Color.orange())
@@ -593,7 +491,6 @@ async def apply_warning(member, reason, guild):
         embed.add_field(name="Reason", value=reason, inline=False)
         embed.add_field(name="Warnings", value=f"**{total_warns}/5**", inline=False)
         await warn_channel.send(embed=embed)
-        
     if total_warns >= 5:
         admins = [m for m in guild.members if m.guild_permissions.administrator and not m.bot]
         for admin in admins:
@@ -601,37 +498,28 @@ async def apply_warning(member, reason, guild):
                 await admin.send(f"🚨 **Administrator Alert:** The user {member.mention} (`{member.name}`) has reached the **5/5 warning limit** in {guild.name}. They have officially run out of luck! Please review their logs and take manual action.")
             except Exception:
                 pass
-                
         if warn_channel:
             await warn_channel.send(f"🚨 {member.mention} has hit the 5-warning limit! Server administrators have been notified via DM.")
-            
         warning_db[member.id] = 0
 
 @bot.event
 async def on_message(message):
     if message.author == bot.user or message.author.bot:
         return
-
     is_mod = message.author.guild_permissions.manage_messages
     if not is_mod:
-        # SPAM FILTER - YENI: Etkinlik kanalındaysak Spam filtresini atla!
         if message.channel.id != ACTIVE_EVENT_CHANNEL_ID:
             if message.author.id not in user_message_cache:
                 user_message_cache[message.author.id] = []
-            
             user_message_cache[message.author.id].append(message.content.lower())
-            
             if len(user_message_cache[message.author.id]) > 3:
                 user_message_cache[message.author.id].pop(0)
-                
             if len(user_message_cache[message.author.id]) == 3 and len(set(user_message_cache[message.author.id])) == 1:
                 await message.delete()
                 await message.channel.send(f"⚠️ Hey {message.author.mention}, please slow down and stop spamming!", delete_after=5)
                 await apply_warning(message.author, "Spamming the chat", message.guild)
                 user_message_cache[message.author.id] = [] 
                 return
-
-        # PROFANITY CONTROL
         if is_heavy_swear(message.content):
             try:
                 await message.delete()
@@ -642,37 +530,26 @@ async def on_message(message):
                 return  
             except Exception as e:
                 print(f"Profanity filter error: {e}")
-
-    # OPTIMIZED HARDCORE XP SYSTEM (2-6 XP every 3 messages)
     try:
         author_id = message.author.id
         if author_id not in xp_message_counter:
             xp_message_counter[author_id] = 0
-            
         xp_message_counter[author_id] += 1
-        
         if xp_message_counter[author_id] >= 3:
-            xp_message_counter[author_id] = 0 # Reset counter after triggering
+            xp_message_counter[author_id] = 0 
             gained = random.randint(5, 30) 
-            
-            # YENI: Eğer etkinlik kanalındaysa XP'yi 3 ile çarp
             if message.channel.id == ACTIVE_EVENT_CHANNEL_ID:
                 gained *= 3
-                
             leveled_up, new_level = await add_xp(author_id, gained)
-            
             if leveled_up and new_level:
                 level_channel = bot.get_channel(LEVEL_LOG_CHANNEL_ID)
                 epic_channel = bot.get_channel(EPIC_LEVEL_100_CHANNEL)
-                
                 if level_channel:
                     await level_channel.send(f"🆙 Awesome! {message.author.mention} just reached **Level {new_level}**! 🎉")
-                
                 if new_level in LEVEL_ROLES:
                     target_role = message.guild.get_role(LEVEL_ROLES[new_level])
                     if target_role:
                         await message.author.add_roles(target_role)
-
                 if new_level == 5:
                     if level_channel: await level_channel.send(f"🎉 Congrats {message.author.mention}, you're now **LEVEL 5**! Keep chatting to unlock more perks.")
                 elif new_level == 10:
@@ -691,23 +568,15 @@ async def on_message(message):
                     if level_channel: await level_channel.send(msg_content)
                     if epic_channel:
                         await epic_channel.send(msg_content)
-                        
     except Exception as e:
         print(f"XP Processing Error: {e}")
-
     await bot.process_commands(message)
 
-# ==========================================
-# 10. COMMAND MATRIX
-# ==========================================
-
-# YENI: Bilgilendirme Komutu
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def starteventonsunday(ctx):
     if ctx.channel.id != 1522172546714308648:
         return await ctx.send("❌ This command can only be used in the designated announcement channel.")
-        
     epic_msg = (
         "🔥 **A DIMENSIONAL RIFT IS OPENING! THE 3X XP EVENT!** 🔥\n\n"
         "Forget everything you know! This isn't just another Sunday. A dimensional gateway will automatically open, "
@@ -766,19 +635,16 @@ async def messagesendadminpingu(ctx, channel: discord.TextChannel = None):
 async def clear(ctx):
     def check(m):
         return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() == 'y'
-
     await ctx.send("⚠️ **WARNING:** You are about to wipe all messages in this channel.\nType `y` within 30 seconds to proceed.")
     try:
         await bot.wait_for('message', check=check, timeout=30.0)
     except asyncio.TimeoutError:
         return await ctx.send("❌ **Aborted:** Channel wipe canceled due to inactivity.")
-
     await ctx.send("🚨 **Final confirmation:** This is irreversible. Type `y` one last time.", delete_after=10)
     try:
         await bot.wait_for('message', check=check, timeout=30.0)
     except asyncio.TimeoutError:
         return await ctx.send("❌ **Aborted:** Channel wipe canceled.")
-
     try:
         deleted = await ctx.channel.purge(limit=None)
         msg = await ctx.send(f"✅ **Success:** Purged `{len(deleted)}` messages.")
@@ -871,26 +737,19 @@ async def stats(ctx, member: discord.Member = None):
         user_data = await xp_collection.find_one({"_id": member.id})
     except Exception:
         user_data = None
-
     if not user_data:
         user_data = {"total": 0, "level": 1}
-        
     current_xp = user_data["total"]
     current_level = user_data["level"]
-    
-    # Accurate XP Progress Calculation based on the new exponential difficulty curve
     prev_level_xp = get_xp_requirement(current_level - 1) if current_level > 1 else 0
     next_level_xp = get_xp_requirement(current_level)
-    
     xp_into_level = current_xp - prev_level_xp
     xp_needed_for_level = next_level_xp - prev_level_xp 
-    
     percentage = min(max(xp_into_level / xp_needed_for_level, 0.0), 1.0)
     bar_length = 10
     filled_blocks = int(percentage * bar_length)
     empty_blocks = bar_length - filled_blocks
     progress_bar = "█" * filled_blocks + "░" * empty_blocks
-
     embed = discord.Embed(title=f"📊 {member.name}'s Profile", color=discord.Color.purple())
     embed.set_thumbnail(url=member.display_avatar.url)
     embed.add_field(name="Current Level", value=f"`Level {current_level}`", inline=True)
@@ -904,17 +763,14 @@ async def leaderstats(ctx):
     try:
         cursor = xp_collection.find({}).sort("total", -1).limit(15)
         sorted_users = await cursor.to_list(length=15)
-        
         if not sorted_users:
             return await ctx.send("❌ The database is empty.")
-            
         leaderboard_str = ""
         for index, user_data in enumerate(sorted_users, start=1):
             user_id = user_data["_id"]
             user_obj = ctx.guild.get_member(user_id)
             name = user_obj.name if user_obj else f"Unknown ({user_id})"
             leaderboard_str += f"`#{index:02}` **{name}** - Level {user_data['level']} ({user_data['total']} XP)\n"
-            
         embed = discord.Embed(title="🏆 Server Leaderboard - Top 15", description=leaderboard_str, color=discord.Color.gold())
         await ctx.send(embed=embed)
     except Exception as e:
@@ -934,7 +790,6 @@ async def randomlinux(ctx):
 async def whoami(ctx):
     roles_list = [r.name for r in ctx.author.roles if r.name != "@everyone"]
     roles_str = ", ".join(roles_list) if roles_list else "No assigned roles."
-    
     embed = discord.Embed(title="💻 Identity Verification: whoami", color=discord.Color.dark_grey())
     embed.add_field(name="User ID", value=f"`{ctx.author.id}`", inline=True)
     embed.add_field(name="Administrator Status", value=f"`{ctx.author.guild_permissions.administrator}`", inline=True)
@@ -946,7 +801,6 @@ async def weather(ctx, *, city: str = ""):
     if not city.strip():
         await ctx.send("❌ Please provide a city name! (e.g., `?weather London`).")
         return
-
     async with aiohttp.ClientSession() as session:
         async with session.get(f'https://wttr.in/{city}?format=3') as resp:
             if resp.status == 200:
@@ -1036,7 +890,6 @@ async def help(ctx):
         description="Here is everything you can do with the bot:",
         color=discord.Color.dark_green()
     )
-    
     embed.add_field(
         name="🛡️ Moderation Commands", 
         value="`?roles` - Opens the role selection menu\n"
@@ -1047,18 +900,16 @@ async def help(ctx):
               "`?ban <user> [reason]` / `?unban <id>` - Manages bans\n"
               "`?setnewschannel` - Sets the channel for tech news\n"
               "`?setjoinchannel` - Sets the channel for welcome banners", 
-        inline=False
+            inline=False
     )
-    
     embed.add_field(
         name="📊 Stats & Utilities", 
         value="`?stats [user]` - View a user's level and XP\n"
               "`?leaderstats` - See the top 15 users in the server\n"
               "`?serverinfo` - Display information about this server\n"
               "`?messagesendadminpingu` - Configure the rules reminder channel", 
-        inline=False
+            inline=False
     )
-    
     embed.add_field(
         name="🎮 Fun & Random", 
         value="`?weather <city>` - Get the current weather\n"
@@ -1066,15 +917,11 @@ async def help(ctx):
               "`?tankfact` / `?mmafact` - Interesting facts\n"
               "`?tea` - Brew some tea for someone\n"
               "`?coinflip` / `?diceroll` / `?8ball` / `?joke` - Minigames", 
-        inline=False
+            inline=False
     )
-    
     embed.set_footer(text="Arguments in [brackets] are optional, <angle brackets> are required.")
     await ctx.send(embed=embed)
 
-# ==========================================
-# 11. GLOBAL EXCEPTION HANDLER
-# ==========================================
 @bot.listen()
 async def on_command_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
@@ -1084,6 +931,5 @@ async def on_command_error(ctx, error):
     else:
         pass 
 
-# BOOTUP SEQUENCE
 keep_alive()
 bot.run(os.environ["DISCORD_TOKEN"])
