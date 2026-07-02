@@ -336,7 +336,7 @@ class RolesView(View):
 
         win_bsd_opts = [
             discord.SelectOption(label="Windows 11", value="1521909235594825941"),
-            discord.SelectOption(label="FreeBSD", value="1521909235594825999")
+            discord.SelectOption(label="FreeBSD", value="1521909235594825999"),
             discord.SelectOption(label="Windows 10", value="1521909403496742973")
         ]
         self.add_item(DistroSelect(placeholder="Windows & FreeBSD", options=win_bsd_opts, custom_id="win_bsd_menu"))
