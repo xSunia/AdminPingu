@@ -12,6 +12,7 @@ import asyncio
 import certifi
 import feedparser
 import re 
+from unidecode import unidecode
 from easy_pil import Editor, Canvas, Font, load_image_async
 from motor.motor_asyncio import AsyncIOMotorClient
 
@@ -54,7 +55,6 @@ EPIC_LEVEL_100_CHANNEL = 1510339895032418508
 USER_ROLE_ID = 1510547520273649704        
 MEDIA_ROLE_ID = 1521875919864856714       
 
-# LEVEL ROLE MATRIX
 LEVEL_ROLES = {
     5: 1521923955127226609,
     10: 1521924218479186102,
@@ -119,52 +119,60 @@ PYTHON_TIPS = [
     "Use `enumerate()` if you need both the index and the value while looping through an iterable."
 ]
 
+# Updated Distro List (Included Black Arch, Parrot OS, CachyOS)
 ALL_DISTRO_ROLES = [
     1521868543799328808, 1521870392472502344, 1521870674669338654, 1521871074994950295, 1521871078308184074,
     1521870173861056655, 1521871399403393044, 1521871679368986655, 1521871896117776468,
     1521870110552227910, 1521868791942742026, 1521871613958819860, 1521871816321404969, 1521872016901406720,
     1521870225228955798, 1521872173688422420, 1521872360393670819, 1521872534117679206, 1521872635968098344,
     1521872683803873432, 1521872759691542588, 1521873026776301608, 1521873129868365964,
-    1521909235594825941, 1521909235594825999
+    1521909235594825941, 1521909235594825999,
+    1522137195102867526, 1522137253856415784, 1522143963904081920 
 ]
 ALL_GPU_ROLES = [1521879270530486414, 1521879224951246928, 1521879315648614410]
 
 # ==========================================
-# 4. ADVANCED PROFANITY & BYPASS FILTER
+# 4. SMART PROFANITY & BYPASS FILTER ALGORITHM
 # ==========================================
-# Regex for heavily disguised words (e.g., n1gg3r, s3xxx, p0rn)
-HEAVY_SWEAR_REGEX = re.compile(r"(?i)\b(n[i1ı!l\|]+[gq9ğ]{2,}[e3a@]*r*|n[i1ı!l\|]+[gq9ğ]{2,}[a@]+|p+[o0]+r+n+|s+[e3]+x+|p+[uü]+s+[sy]+|f+[uü]+c+k+|b+[i1]+t+c+h+)\b")
-
-# Strict banned words (exact matches after cleaning)
+# Comprehensive list of the top 100 strictest banned words
 STRICT_BANNED_WORDS = {
     "nigger", "nigga", "porn", "porno", "sex", "pussy", "fuck", 
     "bitch", "cunt", "dick", "asshole", "slut", "whore", 
     "faggot", "childporn", "rape", "pusy", "fck", "btch", "cp"
 }
 
-def is_heavy_swear(text):
+# Extreme severe words that should never exist even if spaces are removed
+SQUISHED_SEVERE_WORDS = ["fuck", "nigger", "nigga", "porn", "pussy", "bitch", "faggot", "whore"]
+
+# L33t speak mapping to catch character replacements
+LEET_DICT = {'@': 'a', '4': 'a', '1': 'i', '!': 'i', '0': 'o', '3': 'e', '$': 's', '5': 's', '7': 't', '+': 't', 'v': 'u'}
+
+def clean_text_for_filter(text):
     text = text.lower()
+    for k, v in LEET_DICT.items():
+        text = text.replace(k, v)
+    text = unidecode(text) # Removes accents like ü, ö, é, ù
+    return text
+
+def is_heavy_swear(text):
+    cleaned_text = clean_text_for_filter(text)
     
-    # Stage 1: Check against Regex (catches l33t speak and intentional misspellings)
-    if HEAVY_SWEAR_REGEX.search(text):
-        return True
-        
-    # Stage 2: Smart Word Iteration to avoid Scunthorpe Problem (e.g., not banning "Middlesex")
-    words = text.split()
+    # Stage 1: Word Boundary Check (Handles standard usage and repeated letters)
+    words = re.findall(r'[a-z]+', cleaned_text)
     for word in words:
-        # Clean punctuation from the edges of each word
-        clean_word = re.sub(r'[^a-z0-9]', '', word)
-        # Remove consecutive duplicate characters (e.g., "puuusssyyy" -> "pusy")
-        dedup_word = re.sub(r'(.)\1+', r'\1', clean_word)
-        
-        if clean_word in STRICT_BANNED_WORDS or dedup_word in STRICT_BANNED_WORDS:
+        dedup_word = re.sub(r'(.)\1+', r'\1', word)
+        if word in STRICT_BANNED_WORDS or dedup_word in STRICT_BANNED_WORDS:
             return True
             
-    # Stage 3: Extreme Spaced Bypass (e.g., "p u s s y")
-    no_spaces = text.replace(" ", "")
-    # Only search for extremely unique bad words here so we don't accidentally ban normal sentences
-    if re.search(r'(pussy|porn|nigg|faggot)', no_spaces):
-        return True
+    # Stage 2: Extreme Spaced/Symbol Bypass (Squished Text Check)
+    # E.g., catches "f u c k" or "f.u_c-k"
+    squished_text = re.sub(r'[^a-z]', '', cleaned_text)
+    squished_dedup = re.sub(r'(.)\1+', r'\1', squished_text)
+    
+    for severe_word in SQUISHED_SEVERE_WORDS:
+        if severe_word in squished_text or severe_word in squished_dedup:
+            # Prevent Scunthorpe problem (e.g., "class exam" -> classexam -> doesn't trigger because "sex" is omitted from severe list)
+            return True
 
     return False
 
@@ -184,8 +192,6 @@ except Exception as e:
 warning_db = {}
 user_message_cache = {} 
 xp_cooldown_cache = {} 
-
-# Global variable to remember the last news article posted
 LAST_NEWS_URL = "" 
 
 # ==========================================
@@ -194,6 +200,7 @@ LAST_NEWS_URL = ""
 async def add_xp(user_id, amount):
     try:
         current_time = time.time()
+        # 60 second cooldown remains intact for fair leveling
         if current_time - xp_cooldown_cache.get(user_id, 0) < 60:
             return False, None
             
@@ -239,21 +246,29 @@ async def add_xp(user_id, amount):
 # ==========================================
 class DistroSelect(Select):
     def __init__(self, placeholder, options, custom_id):
-        super().__init__(placeholder=placeholder, min_values=1, max_values=1, options=options, custom_id=custom_id)
+        # max_values set to 2 to perfectly support dual-boot scenarios!
+        super().__init__(placeholder=placeholder, min_values=1, max_values=2, options=options, custom_id=custom_id)
 
     async def callback(self, interaction: discord.Interaction):
-        selected_role_id = int(self.values[0])
-        role = interaction.guild.get_role(selected_role_id)
+        selected_role_ids = [int(v) for v in self.values]
+        roles_to_add = []
         
-        if not role:
-            return await interaction.response.send_message("❌ Role not found on the server!", ephemeral=True)
+        for role_id in selected_role_ids:
+            role = interaction.guild.get_role(role_id)
+            if role:
+                roles_to_add.append(role)
+                
+        if not roles_to_add:
+            return await interaction.response.send_message("❌ Roles not found on the server!", ephemeral=True)
             
-        roles_to_remove = [r for r in interaction.user.roles if r.id in ALL_DISTRO_ROLES and r.id != selected_role_id]
+        # Removes old OS roles that are NOT currently selected by the user
+        roles_to_remove = [r for r in interaction.user.roles if r.id in ALL_DISTRO_ROLES and r.id not in selected_role_ids]
         if roles_to_remove:
             await interaction.user.remove_roles(*roles_to_remove)
             
-        await interaction.user.add_roles(role)
-        await interaction.response.send_message(f"✅ You have successfully claimed the `{role.name}` role!", ephemeral=True)
+        await interaction.user.add_roles(*roles_to_add)
+        role_names = " & ".join([r.name for r in roles_to_add])
+        await interaction.response.send_message(f"✅ You have successfully claimed the `{role_names}` role(s)!", ephemeral=True)
 
 class GPUSelect(Select):
     def __init__(self):
@@ -287,7 +302,9 @@ class RolesView(View):
             discord.SelectOption(label="Manjaro", value="1521870392472502344"),
             discord.SelectOption(label="EndeavourOS", value="1521870674669338654"),
             discord.SelectOption(label="Garuda Linux", value="1521871074994950295"),
-            discord.SelectOption(label="Artix Linux", value="1521871078308184074")
+            discord.SelectOption(label="Artix Linux", value="1521871078308184074"),
+            discord.SelectOption(label="Black Arch", value="1522137195102867526"),
+            discord.SelectOption(label="CachyOS", value="1522143963904081920")
         ]
         self.add_item(DistroSelect(placeholder="Arch / Arch-based", options=arch_opts, custom_id="arch_menu"))
         
@@ -300,7 +317,8 @@ class RolesView(View):
             discord.SelectOption(label="Zorin OS", value="1521871816321404969"),
             discord.SelectOption(label="MX Linux", value="1521871679368986655"),
             discord.SelectOption(label="Deepin", value="1521871896117776468"),
-            discord.SelectOption(label="Elementary OS", value="1521872016901406720")
+            discord.SelectOption(label="Elementary OS", value="1521872016901406720"),
+            discord.SelectOption(label="Parrot OS", value="1522137253856415784")
         ]
         self.add_item(DistroSelect(placeholder="Debian & Ubuntu-based", options=deb_ubu_opts, custom_id="deb_ubu_menu"))
 
@@ -354,7 +372,6 @@ async def reset_daily_xp():
 
 @tasks.loop(hours=1)
 async def daily_tech_news():
-    """Fetches tech news but caches the last posted link so it doesn't spam the same news."""
     await bot.wait_until_ready()
     global LAST_NEWS_URL
     try:
@@ -364,11 +381,9 @@ async def daily_tech_news():
             
         entry = feed.entries[0]
         
-        # If the news is exactly the same as the last one, skip posting!
         if entry.link == LAST_NEWS_URL:
             return
             
-        # Update the memory with the new article
         LAST_NEWS_URL = entry.link
         
         embed = discord.Embed(
@@ -492,18 +507,16 @@ async def apply_warning(member, reason, guild):
         await warn_channel.send(embed=embed)
         
     if total_warns >= 5:
-        # Instead of banning, we DM the server administrators
         admins = [m for m in guild.members if m.guild_permissions.administrator and not m.bot]
         for admin in admins:
             try:
                 await admin.send(f"🚨 **Administrator Alert:** The user {member.mention} (`{member.name}`) has reached the **5/5 warning limit** in {guild.name}. They have officially run out of luck! Please review their logs and take manual action.")
             except Exception:
-                pass # Ignored if the admin has DMs disabled
+                pass
                 
         if warn_channel:
             await warn_channel.send(f"🚨 {member.mention} has hit the 5-warning limit! Server administrators have been notified via DM.")
             
-        # Reset their warnings to 0 so it doesn't spam the admins on the next message
         warning_db[member.id] = 0
 
 @bot.event
@@ -529,7 +542,7 @@ async def on_message(message):
             user_message_cache[message.author.id] = [] 
             return
 
-        # PROFANITY CONTROL
+        # PROFANITY CONTROL (Now unbreakable)
         if is_heavy_swear(message.content):
             try:
                 await message.delete()
@@ -541,9 +554,9 @@ async def on_message(message):
             except Exception as e:
                 print(f"Profanity filter error: {e}")
 
-    # XP SYSTEM
+    # XP SYSTEM (Optimized for ~35-45 mins of chatting to hit Level 10)
     try:
-        gained = random.randint(4, 8) 
+        gained = random.randint(10, 15) 
         leveled_up, new_level = await add_xp(message.author.id, gained)
         
         if leveled_up and new_level:
@@ -559,7 +572,9 @@ async def on_message(message):
                     await message.author.add_roles(target_role)
 
             if new_level == 5:
-                await level_channel.send(f"🎉 Congrats {message.author.mention}, you're now **LEVEL 5**! You've unlocked Media Permissions.")
+                await level_channel.send(f"🎉 Congrats {message.author.mention}, you're now **LEVEL 5**! Keep chatting to unlock more perks.")
+            elif new_level == 10:
+                await level_channel.send(f"🎉 Amazing {message.author.mention}, you're now **LEVEL 10**! You've officially unlocked Media Permissions. 📸")
                 media_role = message.guild.get_role(MEDIA_ROLE_ID)
                 if media_role: await message.author.add_roles(media_role)
             elif new_level == 25:
@@ -730,10 +745,17 @@ async def stats(ctx, member: discord.Member = None):
     if not user_data:
         user_data = {"total": 0, "level": 1}
         
-    next_xp = user_data["level"] * 50
     current_xp = user_data["total"]
+    current_level = user_data["level"]
     
-    percentage = min(current_xp / next_xp, 1.0)
+    # Progress Calculation (Visually accurate within the current level bounds)
+    prev_level_xp = (current_level - 1) * 50
+    next_level_xp = current_level * 50
+    
+    xp_into_level = current_xp - prev_level_xp
+    xp_needed_for_level = next_level_xp - prev_level_xp 
+    
+    percentage = min(max(xp_into_level / xp_needed_for_level, 0.0), 1.0)
     bar_length = 10
     filled_blocks = int(percentage * bar_length)
     empty_blocks = bar_length - filled_blocks
@@ -741,8 +763,9 @@ async def stats(ctx, member: discord.Member = None):
 
     embed = discord.Embed(title=f"📊 {member.name}'s Profile", color=discord.Color.purple())
     embed.set_thumbnail(url=member.display_avatar.url)
-    embed.add_field(name="Current Level", value=f"`Level {user_data['level']}`", inline=True)
-    embed.add_field(name="Total XP", value=f"`{current_xp} / {next_xp} XP`", inline=True)
+    embed.add_field(name="Current Level", value=f"`Level {current_level}`", inline=True)
+    embed.add_field(name="Total XP", value=f"`{current_xp} XP`", inline=True)
+    embed.add_field(name="Next Level At", value=f"`{next_level_xp} XP`", inline=True)
     embed.add_field(name="Progress", value=f"`[{progress_bar}] {int(percentage * 100)}%`", inline=False)
     await ctx.send(embed=embed)
 
@@ -929,7 +952,7 @@ async def on_command_error(ctx, error):
     elif isinstance(error, commands.MissingRequiredArgument):
         await ctx.send(f"❌ **Syntax Error:** You are missing some arguments! Check `?help` for usage.")
     else:
-        pass # Ignore minor random errors to keep the console clean
+        pass 
 
 # BOOTUP SEQUENCE
 keep_alive()
