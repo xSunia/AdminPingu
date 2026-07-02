@@ -576,7 +576,7 @@ async def on_message(message):
         
         if xp_message_counter[author_id] >= 3:
             xp_message_counter[author_id] = 0 # Reset counter after triggering
-            gained = random.randint(2, 6) 
+            gained = random.randint(10, 15) 
             leveled_up, new_level = await add_xp(author_id, gained)
             
             if leveled_up and new_level:
