@@ -55,6 +55,9 @@ EPIC_LEVEL_100_CHANNEL = 1510339895032418508
 USER_ROLE_ID = 1510547520273649704        
 MEDIA_ROLE_ID = 1521875919864856714       
 
+# YENI: Etkinlik kanalının ID'sini geçici olarak tutacağımız değişken
+ACTIVE_EVENT_CHANNEL_ID = None
+
 LEVEL_ROLES = {
     5: 1521923955127226609,
     10: 1521924218479186102,
@@ -420,6 +423,63 @@ async def daily_tech_news():
     except Exception as e:
         print(f"Tech news stream error: {e}")
 
+# YENI: Her Pazar UTC 12:00'da tetiklenecek Event Loop'u
+@tasks.loop(time=datetime.time(hour=12, minute=0, tzinfo=datetime.timezone.utc))
+async def sunday_xp_event():
+    await bot.wait_until_ready()
+    global ACTIVE_EVENT_CHANNEL_ID
+    
+    # Bugün Pazar değilse (Python'da Pazartesi=0, Pazar=6'dır) işlemi iptal et
+    now = datetime.datetime.now(datetime.timezone.utc)
+    if now.weekday() != 6: 
+        return
+        
+    category = bot.get_channel(1510339895032418506)
+    if not category:
+        return
+        
+    guild = category.guild
+    
+    try:
+        # Kanalı 10 saniye slowmode ile oluşturuyoruz
+        event_channel = await guild.create_text_channel(
+            name="🔥-triple-xp-chaos",
+            category=category,
+            topic="3X XP EVENT CHANNEL! 10s cooldown. Spam filter disabled. Deletes in 3 hours.",
+            slowmode_delay=10
+        )
+        
+        ACTIVE_EVENT_CHANNEL_ID = event_channel.id
+        
+        # Etkinlik kanalına Efsanevi Giriş Mesajı
+        await event_channel.send(
+            "🚨 **THE RIFT HAS OPENED! TRIPLE XP IS NOW ACTIVE!** 🚨\n\n"
+            "Welcome to the Chaos Zone. For the next **3 HOURS**, every message you send here grants **3X XP**! "
+            "The standard bot spam filter has been lifted, but you must survive the 10-second cooldown.\n\n"
+            "Grind your hearts out. The countdown to destruction has begun! ⏳"
+        )
+        
+        # Ana kanala duyuru geç
+        announcement_channel = bot.get_channel(1522172546714308648)
+        if announcement_channel:
+            await announcement_channel.send(f"⚡ **THE SUNDAY EVENT HAS BEGUN!** A dimensional rift just opened at {event_channel.mention}. Get in there for **3X XP**! The channel will self-destruct in exactly 3 hours.")
+            
+        # Tam 3 Saat (10800 saniye) bekle
+        await asyncio.sleep(3 * 60 * 60)
+        
+        # Süre dolunca kanalı yok et
+        if event_channel:
+            await event_channel.delete()
+            
+        ACTIVE_EVENT_CHANNEL_ID = None
+        
+        if announcement_channel:
+            await announcement_channel.send("🛑 **THE SUNDAY 3X XP EVENT HAS CONCLUDED!** The rift has collapsed and the channel has been erased. See you all next week!")
+            
+    except Exception as e:
+        print(f"Sunday Event Error: {e}")
+        ACTIVE_EVENT_CHANNEL_ID = None
+
 # ==========================================
 # 9. BOT LIFE-CYCLE & AUTOMATION EVENTS
 # ==========================================
@@ -433,6 +493,7 @@ async def on_ready():
     half_hourly_reminder.start()
     reset_daily_xp.start()
     daily_tech_news.start()
+    sunday_xp_event.start() # YENI: Event Task'ı başlatıldı
     bot.add_view(RolesView())
 
 @bot.event
@@ -539,21 +600,22 @@ async def on_message(message):
 
     is_mod = message.author.guild_permissions.manage_messages
     if not is_mod:
-        # SPAM FILTER
-        if message.author.id not in user_message_cache:
-            user_message_cache[message.author.id] = []
-        
-        user_message_cache[message.author.id].append(message.content.lower())
-        
-        if len(user_message_cache[message.author.id]) > 3:
-            user_message_cache[message.author.id].pop(0)
+        # SPAM FILTER - YENI: Etkinlik kanalındaysak Spam filtresini atla!
+        if message.channel.id != ACTIVE_EVENT_CHANNEL_ID:
+            if message.author.id not in user_message_cache:
+                user_message_cache[message.author.id] = []
             
-        if len(user_message_cache[message.author.id]) == 3 and len(set(user_message_cache[message.author.id])) == 1:
-            await message.delete()
-            await message.channel.send(f"⚠️ Hey {message.author.mention}, please slow down and stop spamming!", delete_after=5)
-            await apply_warning(message.author, "Spamming the chat", message.guild)
-            user_message_cache[message.author.id] = [] 
-            return
+            user_message_cache[message.author.id].append(message.content.lower())
+            
+            if len(user_message_cache[message.author.id]) > 3:
+                user_message_cache[message.author.id].pop(0)
+                
+            if len(user_message_cache[message.author.id]) == 3 and len(set(user_message_cache[message.author.id])) == 1:
+                await message.delete()
+                await message.channel.send(f"⚠️ Hey {message.author.mention}, please slow down and stop spamming!", delete_after=5)
+                await apply_warning(message.author, "Spamming the chat", message.guild)
+                user_message_cache[message.author.id] = [] 
+                return
 
         # PROFANITY CONTROL
         if is_heavy_swear(message.content):
@@ -578,6 +640,11 @@ async def on_message(message):
         if xp_message_counter[author_id] >= 3:
             xp_message_counter[author_id] = 0 # Reset counter after triggering
             gained = random.randint(5, 30) 
+            
+            # YENI: Eğer etkinlik kanalındaysa XP'yi 3 ile çarp
+            if message.channel.id == ACTIVE_EVENT_CHANNEL_ID:
+                gained *= 3
+                
             leveled_up, new_level = await add_xp(author_id, gained)
             
             if leveled_up and new_level:
@@ -619,6 +686,34 @@ async def on_message(message):
 # ==========================================
 # 10. COMMAND MATRIX
 # ==========================================
+
+# YENI: Bilgilendirme Komutu
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def starteventonsunday(ctx):
+    if ctx.channel.id != 1522172546714308648:
+        return await ctx.send("❌ This command can only be used in the designated announcement channel.")
+        
+    epic_msg = (
+        "🔥 **A DIMENSIONAL RIFT IS OPENING! THE 3X XP EVENT!** 🔥\n\n"
+        "Forget everything you know! This isn't just another Sunday. A dimensional gateway will automatically open, "
+        "spawning a legendary **3-HOUR TRIPLE XP CHAT ZONE**!\n\n"
+        "⚡ **EVENT MECHANICS:**\n"
+        "• A chaotic chat channel will automatically forge itself in the designated category.\n"
+        "• **TRIPLE (3X) XP** is permanently active while you are inside.\n"
+        "• The system spam filters are **DISABLED** in this zone, but beware: a **10-second slowmode** will limit your strikes.\n"
+        "• Exactly 3 hours later, the channel will implode and be deleted forever.\n\n"
+        "🌍 **GLOBAL INITIATION TIMES (EVERY SUNDAY):**\n"
+        "```yaml\n"
+        "🌐 UTC (Core Server Time): 12:00 PM\n"
+        "🇹🇷 Turkey (TRT):           15:00 (3:00 PM)\n"
+        "🇪🇺 Europe (CET / CEST):    13:00 / 14:00\n"
+        "🇺🇸 America (EST / EDT):    07:00 AM / 08:00 AM\n"
+        "🇷🇺 Russia (MSK):           15:00 (3:00 PM)\n"
+        "```\n"
+        "Prepare your keyboards. The ultimate grind awaits. Will you conquer the leaderboard?"
+    )
+    await ctx.send(epic_msg)
 
 @bot.command()
 @commands.has_permissions(administrator=True)
