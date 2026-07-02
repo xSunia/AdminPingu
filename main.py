@@ -192,7 +192,7 @@ LAST_NEWS_URL = ""
 
 def get_xp_requirement(level):
     
-    return 100 * (level ** 1.20)
+    return int(100 * (level ** 1.15))
 
 async def add_xp(user_id, amount):
     try:
