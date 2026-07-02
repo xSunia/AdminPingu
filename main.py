@@ -191,8 +191,8 @@ LAST_NEWS_URL = ""
 # ==========================================
 
 def get_xp_requirement(level):
-    """Calculates the total XP required to reach a specific level (Harder exponential curve)"""
-    return 50 * (level ** 2)
+    
+    return 100 * (level ** 1.20)
 
 async def add_xp(user_id, amount):
     try:
