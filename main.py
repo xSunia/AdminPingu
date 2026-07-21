@@ -54,6 +54,7 @@ USER_ROLE_ID = 1510547520273649704
 MEDIA_ROLE_ID = 1521875919864856714       
 
 ACTIVE_EVENT_CHANNEL_ID = None
+
 REMINDER_INACTIVITY_THRESHOLD_SECONDS = 3600
 
 LEVEL_ROLES = {
@@ -70,27 +71,27 @@ LINUX_COMMANDS = [
     {"cmd": "ls", "desc": "Used to list directory contents. It's like taking a quick look at everything inside a folder!"},
     {"cmd": "cd", "desc": "Allows you to navigate between directories. It essentially teleports you from one path to another."},
     {"cmd": "pwd", "desc": "Prints the full path of your current working directory."},
-    {"cmd": "sudo", "desc": "Runs a command with the elevated security privileges of the system administrator."},
+    {"cmd": "sudo", "desc": "Runs a command with the elevated security privileges of the system administrator ('root')."},
     {"cmd": "htop", "desc": "A much sleeker, colorful, and interactive modern upgrade to the classic 'top' command!"},
     {"cmd": "mkdir", "desc": "Creates a brand new, empty directory at the specified path."},
-    {"cmd": "rm", "desc": "Removes files or directories. Use the -r flag for folders, and always double-check!"},
+    {"cmd": "rm", "desc": "Removes (deletes) files or directories. Use the -r flag for folders, and always double-check before running it!"},
     {"cmd": "cp", "desc": "Copies files or directories from one location to another, leaving the original intact."},
     {"cmd": "mv", "desc": "Moves or renames files and directories. If the destination is a new name, it acts as a rename."},
     {"cmd": "grep", "desc": "Searches through text using patterns, perfect for finding a specific line inside a huge log file."},
     {"cmd": "chmod", "desc": "Changes the read/write/execute permissions of a file or directory."},
-    {"cmd": "chown", "desc": "Changes the owner of a file or directory."},
+    {"cmd": "chown", "desc": "Changes the owner (and optionally the group) of a file or directory."},
     {"cmd": "ps", "desc": "Displays information about currently running processes on the system."},
     {"cmd": "kill", "desc": "Sends a signal to a running process, most commonly used to terminate it."},
     {"cmd": "df", "desc": "Shows how much disk space is used and available on your mounted filesystems."},
     {"cmd": "du", "desc": "Estimates file and directory space usage, great for finding what's eating your storage."},
     {"cmd": "tar", "desc": "Archives multiple files into a single .tar file, often combined with compression like gzip."},
     {"cmd": "ssh", "desc": "Lets you securely log into and control a remote machine over an encrypted connection."},
-    {"cmd": "curl", "desc": "Transfers data to or from a server, commonly used to test APIs or download files."},
-    {"cmd": "man", "desc": "Opens the manual page for a command, giving you the full documentation."},
+    {"cmd": "curl", "desc": "Transfers data to or from a server, commonly used to test APIs or download files from the terminal."},
+    {"cmd": "man", "desc": "Opens the manual page for a command, giving you the full documentation right in your terminal."},
     {"cmd": "top", "desc": "The classic real-time view of running processes and system resource usage."},
     {"cmd": "history", "desc": "Shows a list of the commands you've previously run in your terminal session."},
     {"cmd": "clear", "desc": "Wipes your terminal screen clean, giving you a fresh, empty prompt."},
-    {"cmd": "systemctl", "desc": "Used to control and inspect systemd services, like starting or checking a background daemon."},
+    {"cmd": "systemctl", "desc": "Used to control and inspect systemd services, like starting, stopping, or checking a background daemon."},
     {"cmd": "journalctl", "desc": "Lets you view and filter logs collected by the systemd journal."}
 ]
 
@@ -161,8 +162,8 @@ PYTHON_TIPS = [
     "The `zip()` function lets you loop over multiple lists in parallel: `for a, b in zip(list1, list2):`",
     "Use `collections.Counter` to quickly count how many times each item appears in a list.",
     "Dictionary comprehensions work just like list comprehensions: `{k: v for k, v in items}`",
-    "Use `with open(...) as f:` when working with files so they get closed automatically.",
-    "The walrus operator `:=` lets you assign and use a value in the same expression.",
+    "Use `with open(...) as f:` when working with files so they get closed automatically, even if an error occurs.",
+    "The walrus operator `:=` lets you assign and use a value in the same expression (Python 3.8+).",
     "Use `*args` and `**kwargs` in your function definitions to accept a flexible number of arguments.",
     "Prefer `pathlib.Path` over manual string concatenation when working with file paths."
 ]
@@ -374,23 +375,6 @@ async def add_xp(user_id, amount):
         print(f"Database access error (add_xp): {e}")
         return []
 
-class ColorModal(discord.ui.Modal, title='Personalize Border Color'):
-    color_input = discord.ui.TextInput(
-        label='Hex Color Code',
-        placeholder='#FFFFFF',
-        default='#cba6f7',
-        min_length=4,
-        max_length=7
-    )
-
-    async def on_submit(self, interaction: discord.Interaction):
-        await xp_collection.update_one(
-            {"_id": interaction.user.id}, 
-            {"$set": {"customizations.border_color": self.color_input.value}}, 
-            upsert=True
-        )
-        await interaction.response.send_message(f"✅ Border color uniquely set to `{self.color_input.value}`!", ephemeral=True)
-
 class FontSelect(discord.ui.Select):
     def __init__(self):
         options = [
@@ -413,12 +397,8 @@ class FontSelect(discord.ui.Select):
         super().__init__(placeholder="Select a Custom Font", min_values=1, max_values=1, options=options, custom_id="font_select")
 
     async def callback(self, interaction: discord.Interaction):
-        await xp_collection.update_one(
-            {"_id": interaction.user.id}, 
-            {"$set": {"customizations.font": self.values[0]}}, 
-            upsert=True
-        )
-        await interaction.response.send_message(f"✅ Your typography has been upgraded to {self.values[0]}!", ephemeral=True)
+        await xp_collection.update_one({"_id": interaction.user.id}, {"$set": {"font": self.values[0]}}, upsert=True)
+        await interaction.response.send_message(f"✅ Your font preference has been saved to: `{self.values[0]}`", ephemeral=True)
 
 class TemplateSelect(discord.ui.Select):
     def __init__(self):
@@ -429,15 +409,46 @@ class TemplateSelect(discord.ui.Select):
             discord.SelectOption(label="Cyberpunk", value="cyber"),
             discord.SelectOption(label="Minimalist Light", value="light")
         ]
-        super().__init__(placeholder="Select a Template Schema", min_values=1, max_values=1, options=options, custom_id="template_select")
+        super().__init__(placeholder="Select a Preset Color Template", min_values=1, max_values=1, options=options, custom_id="template_select")
 
     async def callback(self, interaction: discord.Interaction):
-        await xp_collection.update_one(
-            {"_id": interaction.user.id}, 
-            {"$set": {"customizations.template": self.values[0]}}, 
-            upsert=True
-        )
-        await interaction.response.send_message(f"✅ Your interface schema has been upgraded to {self.values[0]}!", ephemeral=True)
+        await xp_collection.update_one({"_id": interaction.user.id}, {"$set": {"template": self.values[0]}}, upsert=True)
+        await interaction.response.send_message(f"✅ Your template schema has been set to: `{self.values[0]}`", ephemeral=True)
+
+class RGBColorModal(Modal, title="Custom 16 Million RGB Colors"):
+    text_color = TextInput(
+        label="Text Hex Color (e.g., #FFFFFF)",
+        placeholder="#FFFFFF",
+        required=False,
+        max_length=7
+    )
+    bar_color = TextInput(
+        label="XP Progress Bar Hex Color (e.g., #00FFCC)",
+        placeholder="#00FFCC",
+        required=False,
+        max_length=7
+    )
+    accent_color = TextInput(
+        label="Card Border / Accent Hex Color (e.g., #FF0055)",
+        placeholder="#FF0055",
+        required=False,
+        max_length=7
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        update_dict = {}
+        if self.text_color.value:
+            update_dict["custom_text_color"] = self.text_color.value.strip()
+        if self.bar_color.value:
+            update_dict["custom_bar_color"] = self.bar_color.value.strip()
+        if self.accent_color.value:
+            update_dict["custom_accent_color"] = self.accent_color.value.strip()
+
+        if update_dict:
+            await xp_collection.update_one({"_id": interaction.user.id}, {"$set": update_dict}, upsert=True)
+            await interaction.response.send_message("✅ Your custom 16M RGB colors have been applied!", ephemeral=True)
+        else:
+            await interaction.response.send_message("⚠️ No valid hex color values were provided.", ephemeral=True)
 
 class CustomizeView(discord.ui.View):
     def __init__(self):
@@ -445,13 +456,13 @@ class CustomizeView(discord.ui.View):
         self.add_item(FontSelect())
         self.add_item(TemplateSelect())
 
-    @discord.ui.button(label="🎨 Set Custom Hex Color", style=discord.ButtonStyle.primary)
-    async def set_color_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(ColorModal())
+    @discord.ui.button(label="🎨 Custom 16M RGB Colors", style=discord.ButtonStyle.primary, custom_id="custom_rgb_btn")
+    async def rgb_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(RGBColorModal())
 
-    @discord.ui.button(label="✅ Save & Finish", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="✅ Save & Finish", style=discord.ButtonStyle.success, custom_id="finish_custom_btn")
     async def finish_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(content="✅ Customization protocol completed. Deploy `?stats` or `/stats` to view your new card.", view=None)
+        await interaction.response.edit_message(content="✅ Customization menu closed! Use `?stats` or `/stats` to preview your card.", view=None)
 
 class DistroSelect(Select):
     def __init__(self, placeholder, options, custom_id):
@@ -662,6 +673,21 @@ async def sunday_xp_event():
         await clear_event_state()
 
 @bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        return
+    elif isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ You do not have permissions to use this command.", ephemeral=True)
+    else:
+        print(f"Unhandled command error in {ctx.command}: {error}")
+
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error):
+    print(f"Unhandled App Command Error: {error}")
+    if not interaction.response.is_done():
+        await interaction.response.send_message("❌ An unexpected system error occurred.", ephemeral=True)
+
+@bot.event
 async def on_ready():
     print('==========================================')
     print(f'🤖 Bot Is Online: {bot.user.name}')
@@ -680,7 +706,7 @@ async def on_ready():
         except Exception as ce:
             print(f'   ⚠️ Could not count collections: {ce}')
     except Exception as e:
-        print('❌ MongoDB Connection Error: Database is NOT reachable! XP, warnings and configs will fail to save.')
+        print('❌ MongoDB Connection Error: Database is NOT reachable!')
         print(f'   Details: {e}')
     try:
         synced = await bot.tree.sync()
@@ -818,7 +844,7 @@ async def apply_warning(member, reason, guild):
         admins = [m for m in guild.members if m.guild_permissions.administrator and not m.bot]
         for admin in admins:
             try:
-                await admin.send(f"🚨 **Administrator Alert:** The user {member.mention} (`{member.name}`) has reached the **5/5 warning limit** in {guild.name}. Please review their logs and take manual action.")
+                await admin.send(f"🚨 **Administrator Alert:** The user {member.mention} (`{member.name}`) has reached the **5/5 warning limit** in {guild.name}.")
             except Exception:
                 pass
         if warn_channel:
@@ -1044,7 +1070,7 @@ async def try_smart_command_match(message):
         options = ", ".join(f"`{prefix}{c.name}`" for c in unique_candidates)
         await message.channel.send(
             f"❓ Did you mean: {options}?\n"
-            f"Tip: use `?shortcuts` or `/shortcuts` to see all the official short forms."
+            f"Tip: use `?shortcuts` to view all valid shortcuts."
         )
         return True
     return False
@@ -1080,7 +1106,7 @@ async def terminal(ctx):
         title="🐍 Python Sandbox Terminal",
         description=f"Welcome {ctx.author.mention}! This channel is your isolated Python environment.\n\n"
                     f"🔒 **Security Rules:**\n"
-                    f"• Imports, file I/O, and dangerous functions are strictly **BLOCKED**.\n"
+                    f"• Imports, file I/O, and dangerous functions (`eval`, `exec`) are strictly **BLOCKED**.\n"
                     f"• Infinite loops will automatically time out after 3 seconds.\n"
                     f"• You cannot interact with or harm the Discord bot or the server.\n\n"
                     f"💡 **How to use:**\n"
@@ -1148,7 +1174,7 @@ async def messagesendadminpingu(ctx, channel: discord.TextChannel = None):
     global REMINDER_CHANNEL_ID
     target_channel = channel or ctx.channel
     REMINDER_CHANNEL_ID = target_channel.id
-    await ctx.send(f"✅ The automated rules reminder will now be sent to {target_channel.mention} (only when the chat has been active recently).")
+    await ctx.send(f"✅ The automated rules reminder will now be sent to {target_channel.mention}.")
 
 @bot.hybrid_command(name="clear", aliases=["purge", "c"], description="Deletes all messages in this channel with confirmation (mod).")
 @commands.has_permissions(manage_messages=True)
@@ -1269,7 +1295,8 @@ async def clearwarnings(ctx, member: discord.Member):
 @bot.hybrid_command(name="fixlevels", aliases=["recalclevels", "syncxp"], description="Recalculates everyone's level based on total XP.")
 @commands.has_permissions(administrator=True)
 async def fixlevels(ctx):
-    await ctx.defer() if ctx.interaction else None
+    if ctx.interaction:
+        await ctx.defer()
     try:
         all_users = await xp_collection.find({}).to_list(length=None)
     except Exception as e:
@@ -1307,12 +1334,6 @@ async def dbstatus(ctx):
         embed.add_field(name="users_xp", value=f"`{xp_count}` documents", inline=True)
         embed.add_field(name="user_warnings", value=f"`{warn_count}` documents", inline=True)
         embed.add_field(name="server_config", value=f"`{config_count}` documents", inline=True)
-        if warn_count == 0:
-            embed.add_field(
-                name="ℹ️ Note",
-                value="`user_warnings` is currently empty.",
-                inline=False
-            )
     except Exception as e:
         embed.add_field(name="Collection Error", value=f"`{e}`", inline=False)
     await ctx.send(embed=embed)
@@ -1333,25 +1354,27 @@ async def unban(ctx, user_id: int):
     except Exception as e:
         await ctx.send(f"❌ Failed to unban: {e}")
 
-@bot.hybrid_command(name="customize", description="Customize your dynamic stats card background, color, and font.")
-async def customize(ctx, background_image: discord.Attachment = None):
+@bot.hybrid_command(name="customize", description="Customize your stats card background image, fonts, and 16M RGB colors.")
+async def customize(ctx, background_image: discord.Attachment = None, image_url: str = None):
+    if ctx.interaction:
+        await ctx.defer(ephemeral=True)
+
+    target_url = None
     if background_image:
-        if background_image.content_type in ["image/png", "image/jpeg", "image/webp"]:
-            await xp_collection.update_one(
-                {"_id": ctx.author.id}, 
-                {"$set": {"customizations.bg_image": background_image.url}}, 
-                upsert=True
-            )
-            await ctx.send(f"✅ Your background image has been successfully uploaded and saved!", ephemeral=True)
-        else:
-            return await ctx.send("❌ Invalid file format! Please upload a valid PNG, JPG, or WEBP image.", ephemeral=True)
-    
-    embed = discord.Embed(
-        title="🎨 Dynamic Card Customizer",
-        description="Select your preferred schema and typography from the menus below. Click the primary button to choose your unique RGB hex color for your borders and text highlights.",
-        color=discord.Color.brand_green()
-    )
-    await ctx.send(embed=embed, view=CustomizeView(), ephemeral=True)
+        target_url = background_image.url
+    elif image_url:
+        target_url = image_url
+
+    if target_url:
+        await xp_collection.update_one({"_id": ctx.author.id}, {"$set": {"bg_image": target_url}}, upsert=True)
+        msg = "✅ Background image saved! Use the customizer menu below to adjust your font, preset template, or 16M custom RGB colors."
+    else:
+        msg = "Welcome to the Card Customizer! Use the options below to configure fonts, templates, and full 16M RGB colors."
+
+    if ctx.interaction:
+        await ctx.interaction.followup.send(msg, view=CustomizeView(), ephemeral=True)
+    else:
+        await ctx.send(msg, view=CustomizeView())
 
 @bot.hybrid_command(name="stats", aliases=["st", "profile", "rank", "lvl"], description="Shows a user's customized level and XP card.")
 async def stats(ctx, member: discord.Member = None):
@@ -1373,28 +1396,31 @@ async def stats(ctx, member: discord.Member = None):
     xp_needed_for_level = next_level_xp - prev_level_xp
     percentage = min(max(xp_into_level / xp_needed_for_level, 0.0), 1.0) if xp_needed_for_level > 0 else 1.0
 
-    customs = user_data.get("customizations", {})
-    bg_url = customs.get("bg_image")
-    template = customs.get("template", "dark")
-    font_choice = customs.get("font", "arial")
-    custom_border_color = customs.get("border_color", None)
+    bg_url = user_data.get("bg_image")
+    template = user_data.get("template", "dark")
+    font_choice = user_data.get("font", "arial")
 
     bg_color = "#1e1e2e"
     text_color = "#ffffff"
     bar_color = "#cba6f7"
     panel_color = "#313244"
+    accent_color = "#cba6f7"
 
     if template == "neon":
-        bg_color, text_color, bar_color, panel_color = "#000000", "#00ffcc", "#ff00ff", "#111111"
+        bg_color, text_color, bar_color, panel_color, accent_color = "#000000", "#00ffcc", "#ff00ff", "#111111", "#ff00ff"
     elif template == "retro":
-        bg_color, text_color, bar_color, panel_color = "#2b213a", "#ffaa00", "#00ffff", "#4a3b5c"
+        bg_color, text_color, bar_color, panel_color, accent_color = "#2b213a", "#ffaa00", "#00ffff", "#4a3b5c", "#00ffff"
     elif template == "cyber":
-        bg_color, text_color, bar_color, panel_color = "#0f0f0f", "#ffff00", "#ff003c", "#222222"
+        bg_color, text_color, bar_color, panel_color, accent_color = "#0f0f0f", "#ffff00", "#ff003c", "#222222", "#ff003c"
     elif template == "light":
-        bg_color, text_color, bar_color, panel_color = "#ffffff", "#000000", "#0055ff", "#eeeeee"
+        bg_color, text_color, bar_color, panel_color, accent_color = "#ffffff", "#000000", "#0055ff", "#eeeeee", "#0055ff"
 
-    if custom_border_color:
-        bar_color = custom_border_color
+    if user_data.get("custom_text_color"):
+        text_color = user_data.get("custom_text_color")
+    if user_data.get("custom_bar_color"):
+        bar_color = user_data.get("custom_bar_color")
+    if user_data.get("custom_accent_color"):
+        accent_color = user_data.get("custom_accent_color")
 
     try:
         if bg_url:
@@ -1414,7 +1440,7 @@ async def stats(ctx, member: discord.Member = None):
         sub_font = Font.poppins(variant="regular", size=30)
         small_font = Font.poppins(variant="light", size=22)
 
-    background.rectangle((20, 20), width=860, height=260, color=panel_color, radius=20, outline=bar_color, stroke_width=4)
+    background.rectangle((20, 20), width=860, height=260, color=panel_color, radius=20, outline=accent_color, stroke_width=3)
 
     try:
         avatar_image = await load_image_async(str(member.display_avatar.url))
@@ -1640,87 +1666,6 @@ async def neofetch(ctx):
         r"                      ",
         r"                      "
     ]
-    ALMA_ASCII = [
-        r"       /\/\           ",
-        r"      / /  \          ",
-        r"     / / /\ \         ",
-        r"    /_/_/  \_\        ",
-        r"                      ",
-        r"                      ",
-        r"                      "
-    ]
-    ROCKY_ASCII = [
-        r"      .---.           ",
-        r"     /   / \          ",
-        r"    /   /   \         ",
-        r"   /   /_____\        ",
-        r"  /_________/         ",
-        r"                      ",
-        r"                      "
-    ]
-    OPENSUSE_ASCII = [
-        r"     _______          ",
-        r"    / ____  \         ",
-        r"   / /    / /         ",
-        r"  / /____/ /          ",
-        r" /________/           ",
-        r"                      ",
-        r"                      "
-    ]
-    ELEMENTARY_ASCII = [
-        r"     _______          ",
-        r"    / ____  \         ",
-        r"   / /   / /          ",
-        r"  / /___/ /           ",
-        r" /_______/            ",
-        r"                      ",
-        r"                      "
-    ]
-    CENTOS_ASCII = [
-        r"      _____           ",
-        r"     / ___/           ",
-        r"    / /__             ",
-        r"   / ___/             ",
-        r"  /_/                 ",
-        r"                      ",
-        r"                      "
-    ]
-    GENTOO_ASCII = [
-        r"     _----_           ",
-        r"   /   ..   \         ",
-        r"  (    __    )        ",
-        r"   \  /  \  /         ",
-        r"    '-'  '-'          ",
-        r"                      ",
-        r"                      "
-    ]
-    KALI_ASCII = [
-        r"     .---.            ",
-        r"    /     \           ",
-        r"   |  O O  |          ",
-        r"    \  ^  /           ",
-        r"     '---'            ",
-        r"                      ",
-        r"                      "
-    ]
-    LUBUNTU_ASCII = [
-        r"      /\              ",
-        r"     /  \             ",
-        r"    / /\ \            ",
-        r"   / /  \ \           ",
-        r"  /_/    \_\          ",
-        r"                      ",
-        r"                      "
-    ]
-    MX_ASCII = [
-        r"    \\  //            ",
-        r"     \\//             ",
-        r"      //\\            ",
-        r"     //  \\           ",
-        r"                      ",
-        r"                      ",
-        r"                      "
-    ]
     ARTIX_ASCII = [
         r"        /\            ",
         r"       /  \           ",
@@ -1778,39 +1723,24 @@ async def neofetch(ctx):
         1521870173861056655: ("Debian", DEBIAN_ASCII),
         1521870110552227910: ("Ubuntu", UBUNTU_ASCII),
         1521868791942742026: ("Linux Mint", MINT_ASCII),
-        1521871399403393044: ("Kali Linux", KALI_ASCII),
+        1521871399403393044: ("Kali Linux", DEBIAN_ASCII),
         1521871613958819860: ("Pop!_OS", POP_ASCII),
         1521871816321404969: ("Zorin OS", UBUNTU_ASCII),
-        1521871679368986655: ("MX Linux", MX_ASCII),
-        1521871896117776468: ("Deepin", DEBIAN_ASCII),
-        1521872016901406720: ("Elementary OS", ELEMENTARY_ASCII),
-        1522137253856415784: ("Parrot OS", DEBIAN_ASCII),
-        1521870225228955798: ("Gentoo", GENTOO_ASCII),
+        1521870225228955798: ("Gentoo", TUX_ASCII),
         1521872173688422420: ("Nobara", FEDORA_ASCII),
-        1521872360393670819: ("Fedora", FEDORA_ASCII),
-        1521872534117679206: ("Red Star OS", TUX_ASCII),
-        1521872635968098344: ("Void Linux", TUX_ASCII),
-        1521872683803873432: ("NixOS", TUX_ASCII),
-        1521872759691542588: ("Alpine Linux", TUX_ASCII),
-        1521873026776301608: ("openSUSE", OPENSUSE_ASCII),
-        1521873129868365964: ("Slackware", TUX_ASCII)
+        1521872360393670819: ("Fedora", FEDORA_ASCII)
     }
 
     win_role_mapping = {
         1521909235594825941: ("Windows 11", WIN11_ASCII),
         1521909403496742973: ("Windows 10", WIN10_ASCII),
         1521909451739893982: ("Windows 8", WINDOWS_ASCII),
-        1521909341802725427: ("Windows 7", WINDOWS_ASCII),
-        1522212167393214514: ("Windows Vista", WINDOWS_ASCII),
-        1522212092663300248: ("Windows XP", WINDOWS_ASCII)
+        1521909341802725427: ("Windows 7", WINDOWS_ASCII)
     }
 
     bsd_role_mapping = {
         1521909235594825999: ("FreeBSD", BSD_ASCII),
-        1522211951709519872: ("GhostBSD", BSD_ASCII),
-        1522211033073324234: ("OpenBSD", BSD_ASCII),
-        1522211796532854826: ("DragonFly BSD", BSD_ASCII),
-        1522211599744499834: ("NetBSD", BSD_ASCII)
+        1522211951709519872: ("GhostBSD", BSD_ASCII)
     }
 
     selected_linux = None
@@ -1906,11 +1836,11 @@ async def fortune(ctx):
         "A computer program does what you tell it to do, not what you want it to do.",
         "There are only two hard things in Computer Science: cache invalidation and naming things.",
         "The best way to predict the future is to implement it.",
-        "In Linux, everything is a file including your patience by 3 AM.",
+        "In Linux, everything is a file — including your patience by 3 AM.",
         "Real programmers count from 0.",
         "sudo make me a sandwich.",
         "It's not a bug, it's an undocumented feature.",
-        "Talk is cheap. Show me the code. Linus Torvalds",
+        "Talk is cheap. Show me the code. — Linus Torvalds",
         "Given enough eyeballs, all bugs are shallow.",
         "The Linux philosophy: 'Laugh in the face of danger.' Then hide until it goes away.",
         "One does not simply compile the kernel without coffee.",
@@ -1923,18 +1853,18 @@ async def packagemap(ctx, action: str = "install"):
     action = action.lower().strip()
     cheatsheet = {
         "install": {
-            "Debian/Ubuntu (apt)": "sudo apt install <paket>",
-            "Fedora/RHEL (dnf)": "sudo dnf install <paket>",
-            "Arch (pacman)": "sudo pacman -S <paket>",
-            "openSUSE (zypper)": "sudo zypper install <paket>",
-            "Alpine (apk)": "sudo apk add <paket>"
+            "Debian/Ubuntu (apt)": "sudo apt install <package>",
+            "Fedora/RHEL (dnf)": "sudo dnf install <package>",
+            "Arch (pacman)": "sudo pacman -S <package>",
+            "openSUSE (zypper)": "sudo zypper install <package>",
+            "Alpine (apk)": "sudo apk add <package>"
         },
         "remove": {
-            "Debian/Ubuntu (apt)": "sudo apt remove <paket>",
-            "Fedora/RHEL (dnf)": "sudo dnf remove <paket>",
-            "Arch (pacman)": "sudo pacman -R <paket>",
-            "openSUSE (zypper)": "sudo zypper remove <paket>",
-            "Alpine (apk)": "sudo apk del <paket>"
+            "Debian/Ubuntu (apt)": "sudo apt remove <package>",
+            "Fedora/RHEL (dnf)": "sudo dnf remove <package>",
+            "Arch (pacman)": "sudo pacman -R <package>",
+            "openSUSE (zypper)": "sudo zypper remove <package>",
+            "Alpine (apk)": "sudo apk del <package>"
         },
         "update": {
             "Debian/Ubuntu (apt)": "sudo apt update && sudo apt upgrade",
@@ -1944,11 +1874,11 @@ async def packagemap(ctx, action: str = "install"):
             "Alpine (apk)": "sudo apk update && sudo apk upgrade"
         },
         "search": {
-            "Debian/Ubuntu (apt)": "apt search <paket>",
-            "Fedora/RHEL (dnf)": "dnf search <paket>",
-            "Arch (pacman)": "pacman -Ss <paket>",
-            "openSUSE (zypper)": "zypper search <paket>",
-            "Alpine (apk)": "apk search <paket>"
+            "Debian/Ubuntu (apt)": "apt search <package>",
+            "Fedora/RHEL (dnf)": "dnf search <package>",
+            "Arch (pacman)": "pacman -Ss <package>",
+            "openSUSE (zypper)": "zypper search <package>",
+            "Alpine (apk)": "apk search <package>"
         }
     }
     if action not in cheatsheet:
@@ -1997,22 +1927,38 @@ async def uptime(ctx):
 async def shortcuts(ctx):
     embed = discord.Embed(
         title="⚡ Command Shortcuts",
-        description="Full commands and their short forms. Both `?` prefix and `/` slash work seamlessly with the full name.\n"
-                     "**Bonus:** The system utilizes smart command matching. Typing a partial prefix like `?st` will instantly execute `stats`.",
-        color=discord.Color.teal()
-    )
-    embed.add_field(
-        name="🛡️ Moderation",
-        value="`?roles` → `osroles`, `distro`\n"
-              "`?sudolock` → `lock` | `?sudounlock` → `unlock`\n"
-              "`?mute` → `m`, `timeout` | `?unmute` → `um`\n"
-              "`?clear` → `purge`, `c`\n"
-              "`?warning` → `warn` | `?warnings` → `warns`, `w`\n"
-              "`?clearwarnings` → `cw`, `clwarns`\n"
-              "`?ban` → `b` | `?unban` → `ub`",
-        inline=False
+        description="Full commands and their short forms. Both `?` prefix and `/` slash commands are fully supported.\n\n"
+                    "• `?st` / `?profile` / `?rank` -> `?stats`\n"
+                    "• `?ls` / `?top` -> `?leaderstats`\n"
+                    "• `?term` -> `?terminal`\n"
+                    "• `?sc` / `?aliases` -> `?shortcuts`\n"
+                    "• `?rl` / `?linuxtip` -> `?randomlinux`\n"
+                    "• `?wa` -> `?whoami`\n"
+                    "• `?wx` -> `?weather`\n"
+                    "• `?tf` -> `?tankfact`\n"
+                    "• `?mf` -> `?mmafact`\n"
+                    "• `?ptip` -> `?pythontip`\n"
+                    "• `?pg` -> `?ping`\n"
+                    "• `?si` / `?sinfo` -> `?serverinfo`\n"
+                    "• `?av` / `?pfp` -> `?avatar`\n"
+                    "• `?cf` / `?flip` -> `?coinflip`\n"
+                    "• `?dice` / `?roll` -> `?diceroll`\n"
+                    "• `?j` -> `?joke`\n"
+                    "• `?g` -> `?gif`\n"
+                    "• `?nf` / `?sysinfo` -> `?neofetch`\n"
+                    "• `?cow` -> `?cowsay`\n"
+                    "• `?ft` -> `?fortune`\n"
+                    "• `?pkg` -> `?packagemap`\n"
+                    "• `?db` / `?distrowar` -> `?distrobattle`\n"
+                    "• `?up` -> `?uptime`",
+        color=discord.Color.gold()
     )
     await ctx.send(embed=embed)
 
 keep_alive()
-bot.run(os.environ.get("DISCORD_TOKEN"))
+
+TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
+if TOKEN:
+    bot.run(TOKEN)
+else:
+    print("❌ Critical Error: DISCORD_BOT_TOKEN environment variable is missing!")
