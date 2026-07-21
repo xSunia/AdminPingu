@@ -1256,138 +1256,253 @@ async def gif(ctx):
     embed.set_image(url=random.choice(LINUX_GIFS))
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="neofetch", aliases=["nf", "sysinfo"], description="Shows server stats in a neofetch style.")
+@bot.hybrid_command(name="neofetch", aliases=["nf", "sysinfo"], description="Shows user and OS information in a neofetch style.")
 async def neofetch(ctx):
-    guild = ctx.guild
-    uptime_seconds = int(time.time() - BOT_START_TIME)
-    days, rem = divmod(uptime_seconds, 86400)
-    hours, rem = divmod(rem, 3600)
-    minutes, _ = divmod(rem, 60)
-    text_channels = len(guild.text_channels)
-    voice_channels = len(guild.voice_channels)
-
     user_role_ids = [r.id for r in ctx.author.roles]
 
     TUX_ASCII = [
-        r"        .88888888:.       ",
-        r"       88888888.88888.    ",
-        r"     .8888888888888888.   ",
-        r"     888888888888888888   ",
-        r"     88' _`88'_  `88888   ",
-        r"     88 88 88 88  88888   ",
-        r"     88_88_::_88_:88888   ",
-        r"     88:::,::,:::::8888   ",
-        r"     88`:::::::::'8888    ",
-        r"    .88  `::::'    8:88.  ",
-        r"   8888            `8:888.",
-        r"  .8888'             `8888",
-        r" .8888:..  .::.  ...:'8888"
+        r"       .--.           ",
+        r"      |o_o |          ",
+        r"      |:_/ |          ",
+        r"     //   \ \         ",
+        r"    (|     | )        ",
+        r"   /'\_   _/`\        ",
+        r"   \___)=(___/        "
     ]
     ARCH_ASCII = [
-        r"                   -`     ",
-        r"                  .o+`    ",
-        r"                 `ooo/    ",
-        r"                `+oooo:   ",
-        r"               `+oooooo:  ",
-        r"               -+oooooo+: ",
-        r"             `/:-:++oooo+:",
-        r"            `/++++/+++++++:",
-        r"           `/++++++++++++++:",
-        r"          `/+++ooooooooooooo/`",
-        r"         ./ooosssso++osssssso+`",
-        r"        .oossssso-````/ossssss+`",
-        r"       -osssssso.      :ssssssso."
+        r"          /\          ",
+        r"         /  \         ",
+        r"        /\   \        ",
+        r"       /      \       ",
+        r"      /   ,,   \      ",
+        r"     /   |  |  -\     ",
+        r"    /_-''    ''-_\    "
     ]
     UBUNTU_ASCII = [
-        r"                          ",
-        r"            ---           ",
-        r"         -       -        ",
-        r"        /         \       ",
-        r"       |           |      ",
-        r"       |           |      ",
-        r"        \         /       ",
-        r"         -       -        ",
-        r"            ---           ",
-        r"                          ",
-        r"                          ",
-        r"                          ",
-        r"                          "
+        r"         .-.          ",
+        r"       .(   ).        ",
+        r"      (   .   )       ",
+        r"     .-. `-' .-.      ",
+        r"    (   )   (   )     ",
+        r"     `-'     `-'      ",
+        r"                      "
+    ]
+    DEBIAN_ASCII = [
+        r"       _____          ",
+        r"      /  __ \         ",
+        r"     |  /  | |        ",
+        r"     |  \_/  |        ",
+        r"      \___.-'         ",
+        r"                      ",
+        r"                      "
+    ]
+    FEDORA_ASCII = [
+        r"       ______         ",
+        r"      / ____/         ",
+        r"     / /___           ",
+        r"    / ____/           ",
+        r"   /_/                ",
+        r"                      ",
+        r"                      "
+    ]
+    MINT_ASCII = [
+        r"   _____________      ",
+        r"  |_  ___  ___  |     ",
+        r"    | |  | |  | |     ",
+        r"    | |  | |  | |     ",
+        r"   _| |__| |__| |     ",
+        r"  |_____________|     ",
+        r"                      "
+    ]
+    POP_ASCII = [
+        r"    ______            ",
+        r"   |  __  |           ",
+        r"   | |__) |           ",
+        r"   |  ___/            ",
+        r"   |_|                ",
+        r"                      ",
+        r"                      "
+    ]
+    MANJARO_ASCII = [
+        r"   |||||||||| ||||    ",
+        r"   |||||||||| ||||    ",
+        r"   ||||       ||||    ",
+        r"   |||| ||||| ||||    ",
+        r"   |||| ||||| ||||    ",
+        r"                      ",
+        r"                      "
+    ]
+    ALMA_ASCII = [
+        r"       /\/\           ",
+        r"      / /  \          ",
+        r"     / / /\ \         ",
+        r"    /_/_/  \_\        ",
+        r"                      ",
+        r"                      ",
+        r"                      "
+    ]
+    ROCKY_ASCII = [
+        r"      .---.           ",
+        r"     /   / \          ",
+        r"    /   /   \         ",
+        r"   /   /_____\        ",
+        r"  /_________/         ",
+        r"                      ",
+        r"                      "
+    ]
+    OPENSUSE_ASCII = [
+        r"     _______          ",
+        r"    / ____  \         ",
+        r"   / /    / /         ",
+        r"  / /____/ /          ",
+        r" /________/           ",
+        r"                      ",
+        r"                      "
+    ]
+    ELEMENTARY_ASCII = [
+        r"     _______          ",
+        r"    / ____  \         ",
+        r"   / /   / /          ",
+        r"  / /___/ /           ",
+        r" /_______/            ",
+        r"                      ",
+        r"                      "
+    ]
+    CENTOS_ASCII = [
+        r"      _____           ",
+        r"     / ___/           ",
+        r"    / /__             ",
+        r"   / ___/             ",
+        r"  /_/                 ",
+        r"                      ",
+        r"                      "
+    ]
+    GENTOO_ASCII = [
+        r"     _----_           ",
+        r"   /   ..   \         ",
+        r"  (    __    )        ",
+        r"   \  /  \  /         ",
+        r"    '-'  '-'          ",
+        r"                      ",
+        r"                      "
+    ]
+    KALI_ASCII = [
+        r"     .---.            ",
+        r"    /     \           ",
+        r"   |  O O  |          ",
+        r"    \  ^  /           ",
+        r"     '---'            ",
+        r"                      ",
+        r"                      "
+    ]
+    LUBUNTU_ASCII = [
+        r"      /\              ",
+        r"     /  \             ",
+        r"    / /\ \            ",
+        r"   / /  \ \           ",
+        r"  /_/    \_\          ",
+        r"                      ",
+        r"                      "
+    ]
+    MX_ASCII = [
+        r"    \\  //            ",
+        r"     \\//             ",
+        r"      //\\            ",
+        r"     //  \\           ",
+        r"                      ",
+        r"                      ",
+        r"                      "
+    ]
+    ARTIX_ASCII = [
+        r"        /\            ",
+        r"       /  \           ",
+        r"      / /\ \          ",
+        r"     / /  \ \         ",
+        r"    /_/    \_\        ",
+        r"                      ",
+        r"                      "
+    ]
+    WIN11_ASCII = [
+        r"  #######   #######   ",
+        r"  #######   #######   ",
+        r"                      ",
+        r"  #######   #######   ",
+        r"  #######   #######   ",
+        r"                      ",
+        r"                      "
+    ]
+    WIN10_ASCII = [
+        r"     ,.=-._____.-=.   ",
+        r"    //  ||     ||  \\ ",
+        r"   ||   ||     ||   ||",
+        r"   ||---|---||        ",
+        r"   ||   ||     ||   ||",
+        r"    \\  ||     ||  // ",
+        r"     `'=-._____.-='   "
     ]
     WINDOWS_ASCII = [
-        r"                          ",
-        r"        _.-;;-._          ",
-        r" '-..-'|   ||   |         ",
-        r" '-..-'|_.-;;-._|         ",
-        r" '-..-'|   ||   |         ",
-        r" '-..-'|_.-''-._|         ",
-        r"                          ",
-        r"                          ",
-        r"                          ",
-        r"                          ",
-        r"                          ",
-        r"                          ",
-        r"                          "
+        r"     ,---.---.        ",
+        r"    |  1 | 2  |       ",
+        r"    |----+----|       ",
+        r"    |  3 | 4  |       ",
+        r"     `---'---'        ",
+        r"                      ",
+        r"                      "
     ]
     BSD_ASCII = [
-        r"           ,        ,     ",
-        r"          /(        )`    ",
-        r"          \ \___   / |    ",
-        r"          /- _  `-/  '    ",
-        r"         (/\/ \ \   /\    ",
-        r"         / /   | `    \   ",
-        r"         O O   ) /    |   ",
-        r"         `-^--'`<     '   ",
-        r"        (_.)  _  )   /    ",
-        r"         `.___/`    /     ",
-        r"                          ",
-        r"                          ",
-        r"                          "
+        r"      /\  /\          ",
+        r"     (  \/  )         ",
+        r"     ( o  o )         ",
+        r"      \ == /          ",
+        r"       `--'           ",
+        r"                      ",
+        r"                      "
     ]
 
     distro_role_mapping = {
         1521868543799328808: ("Arch Linux", ARCH_ASCII),
-        1521870392472502344: ("Manjaro", ARCH_ASCII),
+        1521870392472502344: ("Manjaro", MANJARO_ASCII),
         1521870674669338654: ("EndeavourOS", ARCH_ASCII),
         1521871074994950295: ("Garuda Linux", ARCH_ASCII),
-        1521871078308184074: ("Artix Linux", ARCH_ASCII),
+        1521871078308184074: ("Artix Linux", ARTIX_ASCII),
         1522137195102867526: ("Black Arch", ARCH_ASCII),
         1522143963904081920: ("CachyOS", ARCH_ASCII),
-        1521870173861056655: ("Debian", UBUNTU_ASCII),
+        1521870173861056655: ("Debian", DEBIAN_ASCII),
         1521870110552227910: ("Ubuntu", UBUNTU_ASCII),
-        1521868791942742026: ("Linux Mint", UBUNTU_ASCII),
-        1521871399403393044: ("Kali Linux", UBUNTU_ASCII),
-        1521871613958819860: ("Pop!_OS", UBUNTU_ASCII),
+        1521868791942742026: ("Linux Mint", MINT_ASCII),
+        1521871399403393044: ("Kali Linux", KALI_ASCII),
+        1521871613958819860: ("Pop!_OS", POP_ASCII),
         1521871816321404969: ("Zorin OS", UBUNTU_ASCII),
-        1521871679368986655: ("MX Linux", UBUNTU_ASCII),
-        1521871896117776468: ("Deepin", UBUNTU_ASCII),
-        1521872016901406720: ("Elementary OS", UBUNTU_ASCII),
-        1522137253856415784: ("Parrot OS", UBUNTU_ASCII),
-        1521870225228955798: ("Gentoo", TUX_ASCII),
-        1521872173688422420: ("Nobara", TUX_ASCII),
-        1521872360393670819: ("Fedora", TUX_ASCII),
+        1521871679368986655: ("MX Linux", MX_ASCII),
+        1521871896117776468: ("Deepin", DEBIAN_ASCII),
+        1521872016901406720: ("Elementary OS", ELEMENTARY_ASCII),
+        1522137253856415784: ("Parrot OS", DEBIAN_ASCII),
+        1521870225228955798: ("Gentoo", GENTOO_ASCII),
+        1521872173688422420: ("Nobara", FEDORA_ASCII),
+        1521872360393670819: ("Fedora", FEDORA_ASCII),
         1521872534117679206: ("Red Star OS", TUX_ASCII),
         1521872635968098344: ("Void Linux", TUX_ASCII),
         1521872683803873432: ("NixOS", TUX_ASCII),
         1521872759691542588: ("Alpine Linux", TUX_ASCII),
-        1521873026776301608: ("openSUSE", TUX_ASCII),
+        1521873026776301608: ("openSUSE", OPENSUSE_ASCII),
         1521873129868365964: ("Slackware", TUX_ASCII)
     }
 
     win_role_mapping = {
-        1521909235594825941: "Windows 11",
-        1521909403496742973: "Windows 10",
-        1521909451739893982: "Windows 8",
-        1521909341802725427: "Windows 7",
-        1522212167393214514: "Windows Vista",
-        1522212092663300248: "Windows XP"
+        1521909235594825941: ("Windows 11", WIN11_ASCII),
+        1521909403496742973: ("Windows 10", WIN10_ASCII),
+        1521909451739893982: ("Windows 8", WINDOWS_ASCII),
+        1521909341802725427: ("Windows 7", WINDOWS_ASCII),
+        1522212167393214514: ("Windows Vista", WINDOWS_ASCII),
+        1522212092663300248: ("Windows XP", WINDOWS_ASCII)
     }
 
     bsd_role_mapping = {
-        1521909235594825999: "FreeBSD",
-        1522211951709519872: "GhostBSD",
-        1522211033073324234: "OpenBSD",
-        1522211796532854826: "DragonFly BSD",
-        1522211599744499834: "NetBSD"
+        1521909235594825999: ("FreeBSD", BSD_ASCII),
+        1522211951709519872: ("GhostBSD", BSD_ASCII),
+        1522211033073324234: ("OpenBSD", BSD_ASCII),
+        1522211796532854826: ("DragonFly BSD", BSD_ASCII),
+        1522211599744499834: ("NetBSD", BSD_ASCII)
     }
 
     selected_linux = None
@@ -1395,25 +1510,25 @@ async def neofetch(ctx):
     selected_bsd = None
 
     for r_id in user_role_ids:
-        if r_id in distro_role_mapping:
+        if r_id in distro_role_mapping and not selected_linux:
             selected_linux = distro_role_mapping[r_id]
-        if r_id in win_role_mapping:
+        if r_id in win_role_mapping and not selected_win:
             selected_win = win_role_mapping[r_id]
-        if r_id in bsd_role_mapping:
+        if r_id in bsd_role_mapping and not selected_bsd:
             selected_bsd = bsd_role_mapping[r_id]
 
-    final_os = "DiscordOS"
+    final_os = "Linux (Tux)"
     final_ascii = TUX_ASCII
 
     if selected_linux:
         final_os = selected_linux[0]
         final_ascii = selected_linux[1]
     elif selected_win:
-        final_os = selected_win
-        final_ascii = WINDOWS_ASCII
+        final_os = selected_win[0]
+        final_ascii = selected_win[1]
     elif selected_bsd:
-        final_os = selected_bsd
-        final_ascii = BSD_ASCII
+        final_os = selected_bsd[0]
+        final_ascii = selected_bsd[1]
 
     gpu_name = "Virtual GPU"
     if 1521879270530486414 in user_role_ids:
@@ -1423,23 +1538,20 @@ async def neofetch(ctx):
     elif 1521879315648614410 in user_role_ids:
         gpu_name = "Intel Corporation"
 
+    created_date = ctx.author.created_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+
     stats_lines = [
-        f"{ctx.author.name}@{guild.name[:12]}",
-        "---------------------",
-        f"OS: {final_os}",
-        f"Host: {guild.name[:24]}",
-        f"Uptime: {days}d {hours}h {minutes}m",
-        f"Members: {guild.member_count}",
-        f"Channels: {text_channels} text, {voice_channels} voice",
-        f"Roles: {len(guild.roles)}",
-        f"Graphics: {gpu_name}",
-        f"Shell: adminpingu-bot ?/slash",
-        f"Prefix: ? (or use / anywhere)"
+        f"User: {ctx.author.name}",
+        f"User ID: {ctx.author.id}",
+        f"Created At: {created_date}",
+        f"Graphics Card: {gpu_name}",
+        f"Operating System: {final_os}"
     ]
 
     neofetch_output = "```ansi\n"
-    for i in range(max(len(final_ascii), len(stats_lines))):
-        left = final_ascii[i].ljust(26) if i < len(final_ascii) else " " * 26
+    max_lines = max(len(final_ascii), len(stats_lines))
+    for i in range(max_lines):
+        left = final_ascii[i].ljust(22) if i < len(final_ascii) else " " * 22
         right = stats_lines[i] if i < len(stats_lines) else ""
         neofetch_output += f"{left}  {right}\n"
     neofetch_output += "```"
