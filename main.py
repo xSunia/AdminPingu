@@ -48,6 +48,11 @@ MEDIA_ROLE_ID = 1521875919864856714
 
 ACTIVE_EVENT_CHANNEL_ID = None
 
+# BUG FIX / YENİ ÖZELLİK: Hatırlatma mesajı, chat'te uzun süredir kimse yazmıyorsa artık gönderilmiyor.
+# Böylece gece kimse yokken kanal boş yere "kural üstüne kural" ile kirlenmiyor.
+# Bu süreyi (saniye cinsinden) istediğin gibi değiştirebilirsin. Şu an 1 saat (3600 sn) olarak ayarlı.
+REMINDER_INACTIVITY_THRESHOLD_SECONDS = 3600
+
 LEVEL_ROLES = {
     5: 1521923955127226609,
     10: 1521924218479186102,
@@ -63,7 +68,27 @@ LINUX_COMMANDS = [
     {"cmd": "cd", "desc": "Allows you to navigate between directories. It essentially teleports you from one path to another."},
     {"cmd": "pwd", "desc": "Prints the full path of your current working directory."},
     {"cmd": "sudo", "desc": "Runs a command with the elevated security privileges of the system administrator ('root')."},
-    {"cmd": "htop", "desc": "A much sleeker, colorful, and interactive modern upgrade to the classic 'top' command!"}
+    {"cmd": "htop", "desc": "A much sleeker, colorful, and interactive modern upgrade to the classic 'top' command!"},
+    {"cmd": "mkdir", "desc": "Creates a brand new, empty directory at the specified path."},
+    {"cmd": "rm", "desc": "Removes (deletes) files or directories. Use the -r flag for folders, and always double-check before running it!"},
+    {"cmd": "cp", "desc": "Copies files or directories from one location to another, leaving the original intact."},
+    {"cmd": "mv", "desc": "Moves or renames files and directories. If the destination is a new name, it acts as a rename."},
+    {"cmd": "grep", "desc": "Searches through text using patterns, perfect for finding a specific line inside a huge log file."},
+    {"cmd": "chmod", "desc": "Changes the read/write/execute permissions of a file or directory."},
+    {"cmd": "chown", "desc": "Changes the owner (and optionally the group) of a file or directory."},
+    {"cmd": "ps", "desc": "Displays information about currently running processes on the system."},
+    {"cmd": "kill", "desc": "Sends a signal to a running process, most commonly used to terminate it."},
+    {"cmd": "df", "desc": "Shows how much disk space is used and available on your mounted filesystems."},
+    {"cmd": "du", "desc": "Estimates file and directory space usage, great for finding what's eating your storage."},
+    {"cmd": "tar", "desc": "Archives multiple files into a single .tar file, often combined with compression like gzip."},
+    {"cmd": "ssh", "desc": "Lets you securely log into and control a remote machine over an encrypted connection."},
+    {"cmd": "curl", "desc": "Transfers data to or from a server, commonly used to test APIs or download files from the terminal."},
+    {"cmd": "man", "desc": "Opens the manual page for a command, giving you the full documentation right in your terminal."},
+    {"cmd": "top", "desc": "The classic real-time view of running processes and system resource usage."},
+    {"cmd": "history", "desc": "Shows a list of the commands you've previously run in your terminal session."},
+    {"cmd": "clear", "desc": "Wipes your terminal screen clean, giving you a fresh, empty prompt."},
+    {"cmd": "systemctl", "desc": "Used to control and inspect systemd services, like starting, stopping, or checking a background daemon."},
+    {"cmd": "journalctl", "desc": "Lets you view and filter logs collected by the systemd journal."}
 ]
 
 SERVER_RULES = [
@@ -90,25 +115,53 @@ TANK_FACTS = [
     "The British Mark I was the very first tank to enter combat during the Battle of the Flers-Courcelette back in 1916.",
     "Major General Ernest Swinton is largely credited with the initial concept of armored tracked vehicles.",
     "The German Tiger I featured an 88mm KwK 36 gun, which was actually designed as an anti-aircraft flak cannon first.",
-    "Sloped armor, famously used on the Soviet T-34, artificially increases the thickness of the armor against incoming shells."
+    "Sloped armor, famously used on the Soviet T-34, artificially increases the thickness of the armor against incoming shells.",
+    "The Panzerkampfwagen VI Tiger weighed nearly 57 tons, making it one of the heaviest production tanks fielded during WWII.",
+    "The M1 Abrams runs on a gas turbine engine, similar in principle to a helicopter's engine, instead of a traditional diesel.",
+    "The Soviet IS-2 heavy tank was named after Joseph Stalin, with 'IS' standing for 'Iosif Stalin'.",
+    "During WWI, early armored vehicles were code-named 'tanks' by the British to disguise them as water-carrying containers during transport.",
+    "The French Renault FT, introduced in 1917, pioneered the now-standard tank layout with a fully rotating turret on top of the hull.",
+    "Modern main battle tanks like the Leopard 2 use layered composite armor to defeat both kinetic penetrators and shaped-charge warheads."
 ]
 
 MMA_FACTS = [
     "Jon 'Bones' Jones became the youngest champion in UFC history at the age of 23.",
     "The traditional Octagon was created to avoid the disadvantages of a square boxing ring, preventing fighters from getting trapped in corners.",
-    "Brazilian Jiu-Jitsu rose to global fame after Royce Gracie dominated the first, second, and fourth UFC tournaments."
+    "Brazilian Jiu-Jitsu rose to global fame after Royce Gracie dominated the first, second, and fourth UFC tournaments.",
+    "Anderson Silva held the UFC Middleweight Championship for a record-setting 2,457 consecutive days.",
+    "The UFC was founded in 1993 and originally had almost no weight classes, time limits, or many of today's safety rules.",
+    "Georges St-Pierre is one of the few fighters in UFC history to hold championship belts in two different weight classes.",
+    "Muay Thai is often nicknamed 'The Art of Eight Limbs' because fighters strike with fists, elbows, knees, and shins.",
+    "Khabib Nurmagomedov retired from professional MMA with a perfect, undefeated record of 29 wins and 0 losses.",
+    "Many Brazilian Jiu-Jitsu submissions and Judo throws share historical roots, both having evolved out of traditional Japanese jujutsu."
 ]
 
 TECH_JOKES = [
     "There are 10 types of people in the world: those who understand binary, and those who don't.",
     "Why do programmers prefer dark mode? Because light attracts bugs.",
-    "I'd tell you a joke about UDP, but you probably wouldn't get it."
+    "I'd tell you a joke about UDP, but you probably wouldn't get it.",
+    "Why do Java developers wear glasses? Because they don't see sharp.",
+    "A SQL query walks into a bar, walks up to two tables, and asks: 'Can I join you?'",
+    "Why was the computer cold? It left its Windows open.",
+    "How many programmers does it take to change a light bulb? None, that's a hardware problem.",
+    "I would tell you a joke about recursion, but I'd have to tell you a joke about recursion first.",
+    "Why do programmers always mix up Halloween and Christmas? Because Oct 31 equals Dec 25.",
+    "There's no place like 127.0.0.1.",
+    "Why did the developer go broke? Because he used up all of his cache."
 ]
 
 PYTHON_TIPS = [
     "Use list comprehensions to write cleaner and faster code: `[x**2 for x in range(10)]`",
     "Did you know? You can swap two variables easily without a temporary variable: `a, b = b, a`",
-    "Use `enumerate()` if you need both the index and the value while looping through an iterable."
+    "Use `enumerate()` if you need both the index and the value while looping through an iterable.",
+    "Use f-strings for cleaner formatting: `f'Result: {value}'` is faster and easier to read than `.format()`.",
+    "The `zip()` function lets you loop over multiple lists in parallel: `for a, b in zip(list1, list2):`",
+    "Use `collections.Counter` to quickly count how many times each item appears in a list.",
+    "Dictionary comprehensions work just like list comprehensions: `{k: v for k, v in items}`",
+    "Use `with open(...) as f:` when working with files so they get closed automatically, even if an error occurs.",
+    "The walrus operator `:=` lets you assign and use a value in the same expression (Python 3.8+).",
+    "Use `*args` and `**kwargs` in your function definitions to accept a flexible number of arguments.",
+    "Prefer `pathlib.Path` over manual string concatenation when working with file paths."
 ]
 
 ALL_DISTRO_ROLES = [
@@ -133,27 +186,91 @@ STRICT_BANNED_WORDS = {
 
 SQUISHED_SEVERE_WORDS = ["fuck", "nigger", "nigga", "porn", "pussy", "bitch", "faggot", "whore"]
 
-LEET_DICT = {'@': 'a', '4': 'a', '1': 'i', '!': 'i', '0': 'o', '3': 'e', '$': 's', '5': 's', '7': 't', '+': 't', 'v': 'u'}
+# NOT: 'v': 'u' eşleşmesi kaldırıldı; normal kelimelerdeki 'v' harflerini gereksiz yere
+# bozarak yanlış pozitif (masum kelimenin yasaklı sayılması) riskini artırıyordu.
+LEET_DICT = {'@': 'a', '4': 'a', '1': 'i', '!': 'i', '0': 'o', '3': 'e', '$': 's', '5': 's', '7': 't', '+': 't'}
 
-def clean_text_for_filter(text):
+# "f.u.c.k" veya "f_u_c_k" gibi noktalama ile bölünmüş yazımları birleştirmek için kaldırılan karakterler.
+# Gerçek boşluklara DOKUNULMUYOR, böylece farklı kelimeler birbirine karışmıyor.
+OBFUSCATION_CHARS_TABLE = str.maketrans('', '', ".,*_~'\"-|")
+
+def normalize_for_filter(text):
     text = text.lower()
     for k, v in LEET_DICT.items():
         text = text.replace(k, v)
     text = unidecode(text)
+    text = text.translate(OBFUSCATION_CHARS_TABLE)
     return text
 
+def collapse_repeats(word):
+    # Sadece 3 veya daha fazla art arda gelen AYNI harfi tek harfe indirir (örn: "fuuuuck" -> "fuck").
+    # Eski kod 2 tekrarı bile indiriyordu (örn: "book" -> "bok"), bu da normal, çift harfli
+    # kelimelerin yanlışlıkla farklı bir kelimeye dönüşme riskini artırıyordu. Artık daha güvenli.
+    return re.sub(r'(.)\1{2,}', r'\1', word)
+
+def clean_text_for_filter(text):
+    # Geriye dönük uyumluluk için tutuluyor; artık normalize_for_filter'a yönlendiriyor.
+    return normalize_for_filter(text)
+
+def strip_html_tags(raw_html):
+    """RSS özetlerinin içindeki HTML etiketlerini temizler, embed içinde çirkin görünmesini engeller."""
+    if not raw_html:
+        return ""
+    clean = re.sub('<[^<]+?>', '', raw_html)
+    clean = (clean.replace('&nbsp;', ' ')
+                  .replace('&amp;', '&')
+                  .replace('&#8217;', "'")
+                  .replace('&#8216;', "'")
+                  .replace('&quot;', '"')
+                  .replace('&#8220;', '"')
+                  .replace('&#8221;', '"'))
+    clean = re.sub(r'\s+', ' ', clean).strip()
+    return clean
+
 def is_heavy_swear(text):
-    cleaned_text = clean_text_for_filter(text)
-    words = re.findall(r'[a-z]+', cleaned_text)
-    for word in words:
-        dedup_word = re.sub(r'(.)\1+', r'\1', word)
-        if word in STRICT_BANNED_WORDS or dedup_word in STRICT_BANNED_WORDS:
+    """
+    AKILLI KÜFÜR FİLTRESİ:
+    Eski sistem tüm mesajı boşluksuz tek bir bloğa çeviriyordu; bu yüzden "cucumber" gibi tamamen
+    masum bir kelime, mesajdaki komşu kelimelerle birleşince yanlışlıkla yasaklı kelime gibi
+    algılanabiliyordu. Yeni sistem her kelimeyi TEK TEK ve kelime sınırlarına saygı duyarak
+    kontrol eder; böylece farklı kelimeler birbirine karışıp yanlış alarm üretemez.
+    Yine de şunları yakalamaya devam eder:
+      1) Leetspeak yazımlar (n1gg3r, sh!t gibi)
+      2) Harf uzatma bypass'ı (fuuuuck gibi)
+      3) Noktalama ile bölünmüş yazımlar (f.u.c.k, f_u_c_k gibi)
+      4) Harf harf boşluklu yazımlar (f u c k gibi)
+    """
+    normalized = normalize_for_filter(text)
+    raw_tokens = normalized.split()
+    clean_tokens = [re.sub(r'[^a-z]', '', t) for t in raw_tokens]
+    clean_tokens = [t for t in clean_tokens if t]
+
+    for token in clean_tokens:
+        if token in STRICT_BANNED_WORDS:
             return True
-    squished_text = re.sub(r'[^a-z]', '', cleaned_text)
-    squished_dedup = re.sub(r'(.)\1+', r'\1', squished_text)
-    for severe_word in SQUISHED_SEVERE_WORDS:
-        if severe_word in squished_text or severe_word in squished_dedup:
+        collapsed = collapse_repeats(token)
+        if collapsed in STRICT_BANNED_WORDS:
             return True
+
+    # Harf harf boşluklu bypass denemelerini yakalamak için: ardışık tek harfli
+    # token'ları geçici olarak birleştirip kontrol ediyoruz (örn: "f u c k" -> "fuck").
+    buffer = ""
+    for token in clean_tokens:
+        if len(token) == 1:
+            buffer += token
+            continue
+        if len(buffer) >= 3:
+            collapsed_buffer = collapse_repeats(buffer)
+            for severe_word in SQUISHED_SEVERE_WORDS:
+                if severe_word in buffer or severe_word in collapsed_buffer:
+                    return True
+        buffer = ""
+    if len(buffer) >= 3:
+        collapsed_buffer = collapse_repeats(buffer)
+        for severe_word in SQUISHED_SEVERE_WORDS:
+            if severe_word in buffer or severe_word in collapsed_buffer:
+                return True
+
     return False
 
 MONGO_URI = os.environ.get("MONGO_URI")
@@ -163,16 +280,78 @@ try:
     db = mongo_client["AdminPinguDB"]
     xp_collection = db["users_xp"]
     config_collection = db["server_config"]
+    warnings_collection = db["user_warnings"]  # YENİ: Uyarılar artık kalıcı olarak Mongo'da tutuluyor
 except Exception as e:
     print(f"MongoDB Initialization Error: {e}")
 
-warning_db = {}
+warning_db = {}  # Mongo'ya ulaşılamazsa devreye giren yedek (fallback) hafıza
 user_message_cache = {} 
 xp_message_counter = {} 
 LAST_NEWS_URL = "" 
+last_activity_time = time.time()  # YENİ: Reminder görevinin sohbet aktivitesini takip etmesi için
 
 def get_xp_requirement(level):
-    return int(100 * (level ** 1.15))
+    """
+    Belirtilen seviyeye ulaşmak için gereken TOPLAM (kümülatif) XP miktarını döndürür.
+    Örnek: Level 1 -> 0 XP, Level 2 -> 100 XP, Level 3 -> 200 XP, Level 4 -> 400 XP,
+    Level 5 -> 600 XP, Level 6 -> 900 XP, Level 7 -> 1200 XP ...
+    Büyüme SÜREKLİ ikiye katlanmaz; her 2 seviyede bir kademeli olarak artar. Böylece hem
+    başlangıçta akıcı bir ilerleme olur, hem de ileri seviyelerde XP ihtiyacı çılgınca
+    patlamaz (ne çok kolay, ne çok zor).
+    """
+    n = level - 1
+    if n <= 0:
+        return 0
+    k = n // 2
+    if n % 2 == 0:
+        total_units = k * (k + 1)
+    else:
+        total_units = (k + 1) ** 2
+    return total_units * 100
+
+async def save_event_state(channel_id, ends_at_timestamp):
+    try:
+        await config_collection.update_one(
+            {"_id": "global_event_state"},
+            {"$set": {"active_channel_id": channel_id, "ends_at": ends_at_timestamp}},
+            upsert=True
+        )
+    except Exception as e:
+        print(f"Event state save error: {e}")
+
+async def clear_event_state():
+    try:
+        await config_collection.update_one(
+            {"_id": "global_event_state"},
+            {"$set": {"active_channel_id": None, "ends_at": None}},
+            upsert=True
+        )
+    except Exception as e:
+        print(f"Event state clear error: {e}")
+
+async def load_event_state():
+    try:
+        return await config_collection.find_one({"_id": "global_event_state"})
+    except Exception as e:
+        print(f"Event state load error: {e}")
+        return None
+
+async def resume_event_countdown(channel, remaining_seconds, announcement_channel_id):
+    """Bot yeniden başlatıldığında devam eden bir 3x XP etkinliğinin geri kalan süresini tamamlar."""
+    global ACTIVE_EVENT_CHANNEL_ID
+    try:
+        await asyncio.sleep(remaining_seconds)
+        try:
+            await channel.delete()
+        except Exception:
+            pass
+        ACTIVE_EVENT_CHANNEL_ID = None
+        await clear_event_state()
+        announcement_channel = bot.get_channel(announcement_channel_id)
+        if announcement_channel:
+            await announcement_channel.send("🛑 **THE SUNDAY 3X XP EVENT HAS CONCLUDED!** The rift has collapsed and the channel has been erased. See you all next week!")
+    except Exception as e:
+        print(f"Event resume error: {e}")
 
 async def add_xp(user_id, amount):
     try:
@@ -184,12 +363,12 @@ async def add_xp(user_id, amount):
         new_daily = user_data.get("daily", 0) + amount
         new_weekly = user_data.get("weekly", 0) + amount
         new_monthly = user_data.get("monthly", 0) + amount
-        new_level = user_data["level"]
-        leveled_up = False
-        next_level_xp = get_xp_requirement(new_level)
-        if new_total >= next_level_xp:
+        old_level = user_data.get("level", 1)
+        new_level = old_level
+        # BUG FIX: 'if' yerine 'while' kullanıyoruz. Böylece tek bir mesajda (örneğin 3x XP
+        # etkinliğinde) birden fazla seviye birden atlanırsa, hiçbir seviye atlaması kaçırılmaz.
+        while new_total >= get_xp_requirement(new_level + 1):
             new_level += 1
-            leveled_up = True
         await xp_collection.update_one(
             {"_id": user_id},
             {"$set": {
@@ -202,10 +381,11 @@ async def add_xp(user_id, amount):
             }},
             upsert=True
         )
-        return leveled_up, new_level
+        levels_gained = list(range(old_level + 1, new_level + 1)) if new_level > old_level else []
+        return levels_gained
     except Exception as e:
         print(f"Database access error (add_xp): {e}")
-        return False, None
+        return []
 
 class DistroSelect(Select):
     def __init__(self, placeholder, options, custom_id):
@@ -317,7 +497,10 @@ class RolesView(View):
 @tasks.loop(minutes=30)
 async def half_hourly_reminder():
     await bot.wait_until_ready()
-    global REMINDER_CHANNEL_ID
+    global REMINDER_CHANNEL_ID, last_activity_time
+    # BUG FIX / YENİ: Sohbette uzun süredir kimse mesaj atmadıysa hatırlatmayı gönderme.
+    if time.time() - last_activity_time > REMINDER_INACTIVITY_THRESHOLD_SECONDS:
+        return
     channel = bot.get_channel(REMINDER_CHANNEL_ID)
     if channel:
         rule = random.choice(SERVER_RULES)
@@ -351,10 +534,12 @@ async def daily_tech_news():
         if entry.link == LAST_NEWS_URL:
             return
         LAST_NEWS_URL = entry.link
+        # BUG FIX: RSS özetindeki HTML etiketleri artık temizleniyor, embed daha temiz görünüyor.
+        clean_summary = strip_html_tags(entry.summary) if hasattr(entry, "summary") else ""
         embed = discord.Embed(
             title=f"📰 {entry.title}", 
             url=entry.link, 
-            description=entry.summary[:500] + "...", 
+            description=clean_summary[:500] + ("..." if len(clean_summary) > 500 else ""), 
             color=discord.Color.teal()
         )
         embed.set_footer(text="Linux & Tech Intelligence Network")
@@ -389,6 +574,9 @@ async def sunday_xp_event():
             slowmode_delay=10
         )
         ACTIVE_EVENT_CHANNEL_ID = event_channel.id
+        event_duration_seconds = 3 * 60 * 60
+        # YENİ: Etkinlik durumu Mongo'ya kaydediliyor; bot yeniden başlarsa etkinlik kaybolmuyor.
+        await save_event_state(event_channel.id, time.time() + event_duration_seconds)
         await event_channel.send(
             "🚨 **THE RIFT HAS OPENED! TRIPLE XP IS NOW ACTIVE!** 🚨\n\n"
             "Welcome to the Chaos Zone. For the next **3 HOURS**, every message you send here grants **3X XP**! "
@@ -398,15 +586,17 @@ async def sunday_xp_event():
         announcement_channel = bot.get_channel(1522172546714308648)
         if announcement_channel:
             await announcement_channel.send(f"⚡ **THE SUNDAY EVENT HAS BEGUN!** A dimensional rift just opened at {event_channel.mention}. Get in there for **3X XP**! The channel will self-destruct in exactly 3 hours.")
-        await asyncio.sleep(3 * 60 * 60)
+        await asyncio.sleep(event_duration_seconds)
         if event_channel:
             await event_channel.delete()
         ACTIVE_EVENT_CHANNEL_ID = None
+        await clear_event_state()
         if announcement_channel:
             await announcement_channel.send("🛑 **THE SUNDAY 3X XP EVENT HAS CONCLUDED!** The rift has collapsed and the channel has been erased. See you all next week!")
     except Exception as e:
         print(f"Sunday Event Error: {e}")
         ACTIVE_EVENT_CHANNEL_ID = None
+        await clear_event_state()
 
 @bot.event
 async def on_ready():
@@ -414,12 +604,40 @@ async def on_ready():
     print(f'🤖 Bot Is Online: {bot.user.name}')
     print('🚀 Engine Status: READY AND OPERATIONAL')
     print('==========================================')
+    global last_activity_time, ACTIVE_EVENT_CHANNEL_ID
+    last_activity_time = time.time()
+    # BUG FIX: MongoDB bağlantısı artık başlangıçta test ediliyor, hata sessizce yutulmuyor.
+    try:
+        await mongo_client.admin.command('ping')
+        print('✅ MongoDB Connection: Successfully established and verified.')
+    except Exception as e:
+        print('❌ MongoDB Connection Error: Database is NOT reachable! XP, warnings and configs will fail to save.')
+        print(f'   Details: {e}')
     await bot.change_presence(activity=discord.Game(name="Managing the Server | ?help"))
     half_hourly_reminder.start()
     reset_daily_xp.start()
     daily_tech_news.start()
     sunday_xp_event.start() 
     bot.add_view(RolesView())
+    # YENİ: Bot yeniden başladıysa devam eden bir 3x XP etkinliği var mı diye kontrol ediyoruz.
+    try:
+        state = await load_event_state()
+        if state and state.get("active_channel_id"):
+            remaining = state.get("ends_at", 0) - time.time()
+            channel = bot.get_channel(int(state["active_channel_id"]))
+            if remaining > 0 and channel:
+                ACTIVE_EVENT_CHANNEL_ID = channel.id
+                asyncio.create_task(resume_event_countdown(channel, remaining, 1522172546714308648))
+                print(f"🔥 Restored active 3X XP event, {int(remaining)}s remaining.")
+            else:
+                if channel:
+                    try:
+                        await channel.delete()
+                    except Exception:
+                        pass
+                await clear_event_state()
+    except Exception as e:
+        print(f"Event state restore error: {e}")
 
 @bot.event
 async def on_member_join(member):
@@ -480,10 +698,26 @@ async def on_member_remove(member):
         print(f"Remove Image Render Error: {e}")
 
 async def apply_warning(member, reason, guild):
-    if member.id not in warning_db:
-        warning_db[member.id] = 0
-    warning_db[member.id] += 1
-    total_warns = warning_db[member.id]
+    total_warns = None
+    try:
+        await warnings_collection.update_one(
+            {"_id": member.id},
+            {
+                "$inc": {"count": 1},
+                "$push": {"history": {"reason": reason, "timestamp": time.time()}}
+            },
+            upsert=True
+        )
+        warning_doc = await warnings_collection.find_one({"_id": member.id})
+        total_warns = warning_doc.get("count", 1) if warning_doc else 1
+    except Exception as e:
+        print(f"Warning DB error (falling back to memory): {e}")
+    if total_warns is None:
+        # BUG FIX: Veritabanına ulaşılamazsa uyarı sistemi tamamen çökmesin diye hafızada devam ediyoruz.
+        if member.id not in warning_db:
+            warning_db[member.id] = 0
+        warning_db[member.id] += 1
+        total_warns = warning_db[member.id]
     warn_channel = bot.get_channel(WARNINGS_CHANNEL_ID)
     if warn_channel:
         embed = discord.Embed(title="⚠️ System Warning Issued", color=discord.Color.orange())
@@ -500,12 +734,18 @@ async def apply_warning(member, reason, guild):
                 pass
         if warn_channel:
             await warn_channel.send(f"🚨 {member.mention} has hit the 5-warning limit! Server administrators have been notified via DM.")
+        try:
+            await warnings_collection.update_one({"_id": member.id}, {"$set": {"count": 0}}, upsert=True)
+        except Exception as e:
+            print(f"Warning reset DB error: {e}")
         warning_db[member.id] = 0
 
 @bot.event
 async def on_message(message):
     if message.author == bot.user or message.author.bot:
         return
+    global last_activity_time
+    last_activity_time = time.time()  # YENİ: Her insan mesajında aktivite zamanı güncelleniyor
     is_mod = message.author.guild_permissions.manage_messages
     if not is_mod:
         if message.channel.id != ACTIVE_EVENT_CHANNEL_ID:
@@ -540,8 +780,10 @@ async def on_message(message):
             gained = random.randint(5, 30) 
             if message.channel.id == ACTIVE_EVENT_CHANNEL_ID:
                 gained *= 3
-            leveled_up, new_level = await add_xp(author_id, gained)
-            if leveled_up and new_level:
+            # BUG FIX: Tek bir XP kazanımında birden fazla seviye atlanabilir (özellikle 3x etkinlikte),
+            # bu yüzden atlanan TÜM seviyeler işleniyor, sadece sonuncusu değil.
+            levels_gained = await add_xp(author_id, gained)
+            for new_level in levels_gained:
                 level_channel = bot.get_channel(LEVEL_LOG_CHANNEL_ID)
                 epic_channel = bot.get_channel(EPIC_LEVEL_100_CHANNEL)
                 if level_channel:
@@ -628,7 +870,7 @@ async def messagesendadminpingu(ctx, channel: discord.TextChannel = None):
     global REMINDER_CHANNEL_ID
     target_channel = channel or ctx.channel
     REMINDER_CHANNEL_ID = target_channel.id
-    await ctx.send(f"✅ The automated rules reminder will now be sent to {target_channel.mention}.")
+    await ctx.send(f"✅ The automated rules reminder will now be sent to {target_channel.mention} (only when the chat has been active recently).")
 
 @bot.command()
 @commands.has_permissions(manage_messages=True)
@@ -715,6 +957,38 @@ async def warning(ctx, member: discord.Member, *, reason="Manual Warning"):
     await ctx.send(f"✅ Warning applied to {member.mention}.")
 
 @bot.command()
+@commands.has_permissions(kick_members=True)
+async def warnings(ctx, member: discord.Member):
+    """YENİ KOMUT: Bir kullanıcının Mongo'da kayıtlı uyarı geçmişini gösterir."""
+    try:
+        doc = await warnings_collection.find_one({"_id": member.id})
+    except Exception as e:
+        return await ctx.send(f"❌ Database error: {e}")
+    count = doc.get("count", 0) if doc else warning_db.get(member.id, 0)
+    embed = discord.Embed(title=f"📋 Warning History: {member.name}", color=discord.Color.orange())
+    embed.add_field(name="Current Warnings", value=f"`{count}/5`", inline=False)
+    if doc and doc.get("history"):
+        recent = doc["history"][-5:]
+        history_str = "\n".join(
+            [f"• `{datetime.datetime.fromtimestamp(h['timestamp']).strftime('%Y-%m-%d %H:%M')}` - {h['reason']}" for h in recent]
+        )
+        embed.add_field(name="Recent History (Last 5)", value=history_str, inline=False)
+    else:
+        embed.add_field(name="Recent History", value="No warnings recorded.", inline=False)
+    await ctx.send(embed=embed)
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def clearwarnings(ctx, member: discord.Member):
+    """YENİ KOMUT: Bir kullanıcının tüm uyarılarını sıfırlar (hem Mongo hem de yedek hafıza)."""
+    try:
+        await warnings_collection.update_one({"_id": member.id}, {"$set": {"count": 0, "history": []}}, upsert=True)
+        warning_db[member.id] = 0
+        await ctx.send(f"✅ All warnings cleared for {member.mention}.")
+    except Exception as e:
+        await ctx.send(f"❌ Database error: {e}")
+
+@bot.command()
 @commands.has_permissions(ban_members=True)
 async def ban(ctx, member: discord.Member, *, reason="No reason provided"):
     await member.ban(reason=reason)
@@ -741,11 +1015,11 @@ async def stats(ctx, member: discord.Member = None):
         user_data = {"total": 0, "level": 1}
     current_xp = user_data["total"]
     current_level = user_data["level"]
-    prev_level_xp = get_xp_requirement(current_level - 1) if current_level > 1 else 0
-    next_level_xp = get_xp_requirement(current_level)
+    prev_level_xp = get_xp_requirement(current_level)
+    next_level_xp = get_xp_requirement(current_level + 1)
     xp_into_level = current_xp - prev_level_xp
     xp_needed_for_level = next_level_xp - prev_level_xp 
-    percentage = min(max(xp_into_level / xp_needed_for_level, 0.0), 1.0)
+    percentage = min(max(xp_into_level / xp_needed_for_level, 0.0), 1.0) if xp_needed_for_level > 0 else 1.0
     bar_length = 10
     filled_blocks = int(percentage * bar_length)
     empty_blocks = bar_length - filled_blocks
@@ -897,17 +1171,19 @@ async def help(ctx):
               "`?mute <user> [h]` / `?unmute <user>` - Manages timeouts\n"
               "`?clear` - Mass deletes messages in a channel\n"
               "`?warning <user> [reason]` - Gives a user a warning\n"
+              "`?warnings <user>` - Shows a user's warning history\n"
+              "`?clearwarnings <user>` - Resets a user's warnings to 0\n"
               "`?ban <user> [reason]` / `?unban <id>` - Manages bans\n"
               "`?setnewschannel` - Sets the channel for tech news\n"
-              "`?setjoinchannel` - Sets the channel for welcome banners", 
+              "`?setjoinchannel` - Sets the channel for welcome banners\n"
+              "`?messagesendadminpingu` - Sets the channel for the automated rules reminder", 
             inline=False
     )
     embed.add_field(
         name="📊 Stats & Utilities", 
         value="`?stats [user]` - View a user's level and XP\n"
               "`?leaderstats` - See the top 15 users in the server\n"
-              "`?serverinfo` - Display information about this server\n"
-              "`?messagesendadminpingu` - Configure the rules reminder channel", 
+              "`?serverinfo` - Display information about this server", 
             inline=False
     )
     embed.add_field(
