@@ -38,6 +38,7 @@ intents.messages = True
 intents.message_content = True
 intents.members = True
 intents.guilds = True
+intents.voice_states = True
 
 bot = commands.Bot(command_prefix="?", intents=intents, help_command=None)
 
@@ -267,6 +268,7 @@ except Exception as e:
 warning_db = {}
 user_message_cache = {} 
 xp_message_counter = {} 
+voice_sessions = {}
 LAST_NEWS_URL = "" 
 last_activity_time = time.time()
 
@@ -349,7 +351,7 @@ async def add_xp(user_id, amount):
         user_data = await xp_collection.find_one({"_id": user_id})
         if not user_data:
             user_data = {"_id": user_id, "total": 0, "daily": 0, "weekly": 0, "monthly": 0, "last_msg": 0, "level": 1}
-        new_total = user_data["total"] + amount
+        new_total = user_data.get("total", 0) + amount
         new_daily = user_data.get("daily", 0) + amount
         new_weekly = user_data.get("weekly", 0) + amount
         new_monthly = user_data.get("monthly", 0) + amount
@@ -372,6 +374,56 @@ async def add_xp(user_id, amount):
     except Exception as e:
         print(f"Database access error (add_xp): {e}")
         return []
+
+class FontSelect(discord.ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label="Arial", value="arial"),
+            discord.SelectOption(label="Impact", value="impact"),
+            discord.SelectOption(label="Terminus", value="terminus"),
+            discord.SelectOption(label="Courier", value="courier"),
+            discord.SelectOption(label="Comic Sans", value="comic"),
+            discord.SelectOption(label="Verdana", value="verdana"),
+            discord.SelectOption(label="Georgia", value="georgia"),
+            discord.SelectOption(label="Tahoma", value="tahoma"),
+            discord.SelectOption(label="Trebuchet", value="trebuchet"),
+            discord.SelectOption(label="Lucida", value="lucida"),
+            discord.SelectOption(label="Garamond", value="garamond"),
+            discord.SelectOption(label="Palatino", value="palatino"),
+            discord.SelectOption(label="Bookman", value="bookman"),
+            discord.SelectOption(label="Helvetica", value="helvetica"),
+            discord.SelectOption(label="Calibri", value="calibri")
+        ]
+        super().__init__(placeholder="Select a Custom Font", min_values=1, max_values=1, options=options, custom_id="font_select")
+
+    async def callback(self, interaction: discord.Interaction):
+        await xp_collection.update_one({"_id": interaction.user.id}, {"$set": {"font": self.values[0]}}, upsert=True)
+        await interaction.response.send_message(f"Your font has been updated to {self.values[0]}!", ephemeral=True)
+
+class TemplateSelect(discord.ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label="Neon Hacker", value="neon"),
+            discord.SelectOption(label="Retro Synth", value="retro"),
+            discord.SelectOption(label="Dark Matter", value="dark"),
+            discord.SelectOption(label="Cyberpunk", value="cyber"),
+            discord.SelectOption(label="Minimalist Light", value="light")
+        ]
+        super().__init__(placeholder="Select a Template Schema", min_values=1, max_values=1, options=options, custom_id="template_select")
+
+    async def callback(self, interaction: discord.Interaction):
+        await xp_collection.update_one({"_id": interaction.user.id}, {"$set": {"template": self.values[0]}}, upsert=True)
+        await interaction.response.send_message(f"Your template schema has been updated to {self.values[0]}!", ephemeral=True)
+
+class CustomizeView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(FontSelect())
+        self.add_item(TemplateSelect())
+
+    @discord.ui.button(label="Finish", style=discord.ButtonStyle.success)
+    async def finish_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="✅ Customization closed! Use `?stats` to see your new card.", view=None)
 
 class DistroSelect(Select):
     def __init__(self, placeholder, options, custom_id):
@@ -633,6 +685,23 @@ async def on_ready():
         print(f"Event state restore error: {e}")
 
 @bot.event
+async def on_voice_state_update(member, before, after):
+    if member.bot:
+        return
+    if before.channel is None and after.channel is not None:
+        voice_sessions[member.id] = time.time()
+    elif before.channel is not None and after.channel is None:
+        if member.id in voice_sessions:
+            join_time = voice_sessions.pop(member.id)
+            duration = time.time() - join_time
+            minutes = int(duration // 60)
+            if minutes > 0:
+                xp_gained = minutes * 2
+                if duration >= 7200:
+                    xp_gained += 5000
+                await add_xp(member.id, xp_gained)
+
+@bot.event
 async def on_member_join(member):
     role = member.guild.get_role(USER_ROLE_ID)
     if role:
@@ -732,11 +801,7 @@ async def apply_warning(member, reason, guild):
             print(f"Warning reset DB error: {e}")
         warning_db[member.id] = 0
 
-# ==========================================
-# TERMINAL SANDBOX GÜVENLİK SİSTEMİ
-# ==========================================
 def check_code_safety(code):
-    """Zararlı kodları tespit eden AST tabanlı güvenlik filtresi."""
     try:
         tree = ast.parse(code)
     except SyntaxError as e:
@@ -755,7 +820,6 @@ def check_code_safety(code):
     return True, ""
 
 def execute_sandbox_sync(code):
-    """Kodun çalıştırıldığı izole alan."""
     safe, msg = check_code_safety(code)
     if not safe:
         return msg
@@ -788,7 +852,6 @@ def execute_sandbox_sync(code):
     return output_buffer.getvalue()
 
 async def execute_sandbox(code):
-    """Botu dondurmamak için executor üzerinden 3 saniyelik timeout ile kodu çalıştırır."""
     loop = asyncio.get_running_loop()
     try:
         future = loop.run_in_executor(None, execute_sandbox_sync, code)
@@ -804,9 +867,6 @@ async def on_message(message):
     if message.author == bot.user or message.author.bot:
         return
         
-    # ==========================================
-    # TERMINAL İŞLEYİCİSİ (En üstte olmalı ki spam algılamasın)
-    # ==========================================
     if message.channel.category_id == 1510339895032418506 and message.channel.name.startswith("terminal-"):
         is_mod = message.author.guild_permissions.manage_messages
         is_owner = str(message.author.id) in (message.channel.topic or "")
@@ -818,7 +878,6 @@ async def on_message(message):
                 await message.channel.delete(reason="User closed terminal.")
                 return
 
-            # Kod bloklarını (```python ... ```) temizle
             if code.startswith("```python"): code = code[9:]
             elif code.startswith("```py"): code = code[5:]
             elif code.startswith("```"): code = code[3:]
@@ -840,7 +899,7 @@ async def on_message(message):
                 await message.remove_reaction("⏳", bot.user)
             except Exception:
                 pass
-            return # Terminal işlemlerinde XP veya Spam filtresini atla!
+            return 
     
     global last_activity_time
     last_activity_time = time.time()
@@ -968,7 +1027,6 @@ async def terminal(ctx):
     if not category:
         return await ctx.send("❌ Error: The required category for terminals was not found.", ephemeral=True)
         
-    # Check if user already has a terminal
     existing_channel = discord.utils.get(category.text_channels, name=f"terminal-{ctx.author.name.lower()}")
     if existing_channel:
         return await ctx.send(f"❌ You already have an active terminal: {existing_channel.mention}", ephemeral=True)
@@ -1249,7 +1307,13 @@ async def unban(ctx, user_id: int):
     except Exception as e:
         await ctx.send(f"❌ Failed to unban: {e}")
 
-@bot.hybrid_command(name="stats", aliases=["st", "profile", "rank", "lvl"], description="Shows a user's level and XP info.")
+@bot.hybrid_command(name="customize", description="Customize your stats card background and font.")
+async def customize(ctx, background_image: discord.Attachment = None):
+    if background_image:
+        await xp_collection.update_one({"_id": ctx.author.id}, {"$set": {"bg_image": background_image.url}}, upsert=True)
+    await ctx.send("Welcome to the Card Customizer! Please configure your template schemas and fonts from the menus below. Make sure to click Finish when you are done.", view=CustomizeView(), ephemeral=True)
+
+@bot.hybrid_command(name="stats", aliases=["st", "profile", "rank", "lvl"], description="Shows a user's customized level and XP card.")
 async def stats(ctx, member: discord.Member = None):
     if ctx.interaction:
         await ctx.defer()
@@ -1260,26 +1324,71 @@ async def stats(ctx, member: discord.Member = None):
         user_data = None
     if not user_data:
         user_data = {"total": 0, "level": 1}
-    current_xp = user_data["total"]
+    
+    current_xp = user_data.get("total", 0)
     current_level = get_level_from_total_xp(current_xp)
     prev_level_xp = get_xp_requirement(current_level)
     next_level_xp = get_xp_requirement(current_level + 1)
     xp_into_level = current_xp - prev_level_xp
-    xp_needed_for_level = next_level_xp - prev_level_xp 
+    xp_needed_for_level = next_level_xp - prev_level_xp
     percentage = min(max(xp_into_level / xp_needed_for_level, 0.0), 1.0) if xp_needed_for_level > 0 else 1.0
-    bar_length = 10
-    filled_blocks = int(percentage * bar_length)
-    empty_blocks = bar_length - filled_blocks
-    progress_bar = "█" * filled_blocks + "░" * empty_blocks
-    xp_remaining = max(next_level_xp - current_xp, 0)
-    embed = discord.Embed(title=f"📊 {member.name}'s Profile", color=discord.Color.purple())
-    embed.set_thumbnail(url=member.display_avatar.url)
-    embed.add_field(name="Current Level", value=f"`Level {current_level}`", inline=True)
-    embed.add_field(name="Total XP", value=f"`{current_xp} XP`", inline=True)
-    embed.add_field(name="Next Level At", value=f"`{next_level_xp} XP`", inline=True)
-    embed.add_field(name="XP Remaining", value=f"`{xp_remaining} XP`", inline=True)
-    embed.add_field(name="Progress", value=f"`[{progress_bar}] {int(percentage * 100)}%`", inline=False)
-    await ctx.send(embed=embed)
+
+    bg_url = user_data.get("bg_image")
+    template = user_data.get("template", "dark")
+    font_choice = user_data.get("font", "arial")
+
+    bg_color = "#1e1e2e"
+    text_color = "#ffffff"
+    bar_color = "#cba6f7"
+    panel_color = "#313244"
+
+    if template == "neon":
+        bg_color, text_color, bar_color, panel_color = "#000000", "#00ffcc", "#ff00ff", "#111111"
+    elif template == "retro":
+        bg_color, text_color, bar_color, panel_color = "#2b213a", "#ffaa00", "#00ffff", "#4a3b5c"
+    elif template == "cyber":
+        bg_color, text_color, bar_color, panel_color = "#0f0f0f", "#ffff00", "#ff003c", "#222222"
+    elif template == "light":
+        bg_color, text_color, bar_color, panel_color = "#ffffff", "#000000", "#0055ff", "#eeeeee"
+
+    try:
+        if bg_url:
+            bg_img = await load_image_async(bg_url)
+            background = Editor(bg_img).resize((900, 300))
+        else:
+            background = Editor(Canvas((900, 300), color=bg_color))
+    except Exception:
+        background = Editor(Canvas((900, 300), color=bg_color))
+
+    try:
+        main_font = Font(f"fonts/{font_choice}.ttf", size=45)
+        sub_font = Font(f"fonts/{font_choice}.ttf", size=30)
+        small_font = Font(f"fonts/{font_choice}.ttf", size=22)
+    except Exception:
+        main_font = Font.poppins(variant="bold", size=45)
+        sub_font = Font.poppins(variant="regular", size=30)
+        small_font = Font.poppins(variant="light", size=22)
+
+    background.rectangle((20, 20), width=860, height=260, color=panel_color, radius=20, outline=bar_color, stroke_width=3)
+
+    try:
+        avatar_image = await load_image_async(str(member.display_avatar.url))
+        profile = Editor(avatar_image).resize((200, 200)).circle_image()
+        background.paste(profile, (50, 50))
+    except Exception:
+        pass
+
+    background.text((300, 70), member.name.upper(), font=main_font, color=text_color)
+    background.text((300, 140), f"LEVEL {current_level}", font=sub_font, color=bar_color)
+    background.text((820, 140), f"{current_xp} / {next_level_xp} XP", font=small_font, color=text_color, align="right")
+
+    background.rectangle((300, 200), width=520, height=35, color="#555555", radius=17)
+    fill_width = int(520 * percentage)
+    if fill_width > 0:
+        background.rectangle((300, 200), width=fill_width, height=35, color=bar_color, radius=17)
+
+    file = discord.File(fp=background.image_bytes, filename="stats.png")
+    await ctx.send(file=file)
 
 @bot.hybrid_command(name="leaderstats", aliases=["ls", "lstats", "top", "ldrst", "leaders"], description="Shows the top 15 most active users.")
 async def leaderstats(ctx):
@@ -1684,11 +1793,9 @@ async def neofetch(ctx):
         final_os = selected_bsd[0]
         final_ascii = selected_bsd[1]
 
-    # Yetki Seviyesi Kontrolü (Mod mu değil mi?)
     is_mod = ctx.author.guild_permissions.manage_messages or ctx.author.guild_permissions.administrator
     auth_level = "/Root" if is_mod else "/User"
 
-    # Uptime Hesaplanması (Kullanıcının sunucuya katılmasından itibaren geçen süre)
     join_time = ctx.author.joined_at
     if join_time:
         now = datetime.datetime.now(datetime.timezone.utc)
@@ -1864,6 +1971,7 @@ async def shortcuts(ctx):
     embed.add_field(
         name="📊 Stats & Utilities",
         value="`?stats` → `st`, `profile`, `rank`, `lvl`\n"
+              "`?customize` → `cardsetup`\n"
               "`?leaderstats` → `ls`, `lstats`, `top`, `ldrst`, `leaders`\n"
               "`?serverinfo` → `sinfo`, `si`\n"
               "`?help` → `h`, `commands`, `cmds`\n"
@@ -1911,7 +2019,8 @@ async def help(ctx):
     )
     embed.add_field(
         name="📊 Stats & Utilities", 
-        value="`?stats [user]` - View a user's level and XP\n"
+        value="`?stats [user]` - View a user's customized level card\n"
+              "`?customize [image]` - Fully customize your stats background and fonts\n"
               "`?leaderstats` - See the top 15 users in the server\n"
               "`?serverinfo` - Display information about this server\n"
               "`?shortcuts` - See every command's short alias", 
