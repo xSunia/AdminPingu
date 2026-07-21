@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands, tasks
-from discord.ui import Select, View, Modal, TextInput
+from discord.ui import Select, View
 from flask import Flask
 from threading import Thread
 import random
@@ -16,7 +16,6 @@ import ast
 import traceback
 import io
 import sys
-import difflib
 from unidecode import unidecode
 from easy_pil import Editor, Canvas, Font, load_image_async
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -39,7 +38,6 @@ intents.messages = True
 intents.message_content = True
 intents.members = True
 intents.guilds = True
-intents.voice_states = True
 
 bot = commands.Bot(command_prefix="?", intents=intents, help_command=None)
 
@@ -55,6 +53,7 @@ USER_ROLE_ID = 1510547520273649704
 MEDIA_ROLE_ID = 1521875919864856714       
 
 ACTIVE_EVENT_CHANNEL_ID = None
+
 REMINDER_INACTIVITY_THRESHOLD_SECONDS = 3600
 
 LEVEL_ROLES = {
@@ -262,14 +261,12 @@ try:
     xp_collection = db["users_xp"]
     config_collection = db["server_config"]
     warnings_collection = db["user_warnings"]
-    customizations_collection = db["customizations"]
 except Exception as e:
     print(f"MongoDB Initialization Error: {e}")
 
 warning_db = {}
 user_message_cache = {} 
 xp_message_counter = {} 
-voice_sessions = {}
 LAST_NEWS_URL = "" 
 last_activity_time = time.time()
 
@@ -352,7 +349,7 @@ async def add_xp(user_id, amount):
         user_data = await xp_collection.find_one({"_id": user_id})
         if not user_data:
             user_data = {"_id": user_id, "total": 0, "daily": 0, "weekly": 0, "monthly": 0, "last_msg": 0, "level": 1}
-        new_total = user_data.get("total", 0) + amount
+        new_total = user_data["total"] + amount
         new_daily = user_data.get("daily", 0) + amount
         new_weekly = user_data.get("weekly", 0) + amount
         new_monthly = user_data.get("monthly", 0) + amount
@@ -375,95 +372,6 @@ async def add_xp(user_id, amount):
     except Exception as e:
         print(f"Database access error (add_xp): {e}")
         return []
-
-class FontSelect(discord.ui.Select):
-    def __init__(self):
-        options = [
-            discord.SelectOption(label="Arial", value="arial"),
-            discord.SelectOption(label="Impact", value="impact"),
-            discord.SelectOption(label="Terminus", value="terminus"),
-            discord.SelectOption(label="Courier", value="courier"),
-            discord.SelectOption(label="Comic Sans", value="comic"),
-            discord.SelectOption(label="Verdana", value="verdana"),
-            discord.SelectOption(label="Georgia", value="georgia"),
-            discord.SelectOption(label="Tahoma", value="tahoma"),
-            discord.SelectOption(label="Trebuchet", value="trebuchet"),
-            discord.SelectOption(label="Lucida", value="lucida"),
-            discord.SelectOption(label="Garamond", value="garamond"),
-            discord.SelectOption(label="Palatino", value="palatino"),
-            discord.SelectOption(label="Bookman", value="bookman"),
-            discord.SelectOption(label="Helvetica", value="helvetica"),
-            discord.SelectOption(label="Calibri", value="calibri")
-        ]
-        super().__init__(placeholder="Select a Custom Font", min_values=1, max_values=1, options=options, custom_id="font_select")
-
-    async def callback(self, interaction: discord.Interaction):
-        await customizations_collection.update_one({"_id": interaction.user.id}, {"$set": {"font": self.values[0]}}, upsert=True)
-        await interaction.response.send_message(f"✅ Your font preference has been saved to: `{self.values[0]}`", ephemeral=True)
-
-class TemplateSelect(discord.ui.Select):
-    def __init__(self):
-        options = [
-            discord.SelectOption(label="Neon Hacker", value="neon"),
-            discord.SelectOption(label="Retro Synth", value="retro"),
-            discord.SelectOption(label="Dark Matter", value="dark"),
-            discord.SelectOption(label="Cyberpunk", value="cyber"),
-            discord.SelectOption(label="Minimalist Light", value="light")
-        ]
-        super().__init__(placeholder="Select a Preset Color Template", min_values=1, max_values=1, options=options, custom_id="template_select")
-
-    async def callback(self, interaction: discord.Interaction):
-        await customizations_collection.update_one({"_id": interaction.user.id}, {"$set": {"template": self.values[0]}}, upsert=True)
-        await interaction.response.send_message(f"✅ Your template schema has been set to: `{self.values[0]}`", ephemeral=True)
-
-class RGBColorModal(Modal, title="Custom 16 Million RGB Colors"):
-    text_color = TextInput(
-        label="Text Hex Color (e.g., #FFFFFF)",
-        placeholder="#FFFFFF",
-        required=False,
-        max_length=7
-    )
-    bar_color = TextInput(
-        label="XP Progress Bar Hex Color (e.g., #00FFCC)",
-        placeholder="#00FFCC",
-        required=False,
-        max_length=7
-    )
-    accent_color = TextInput(
-        label="Card Border / Accent Hex Color (e.g., #FF0055)",
-        placeholder="#FF0055",
-        required=False,
-        max_length=7
-    )
-
-    async def on_submit(self, interaction: discord.Interaction):
-        update_dict = {}
-        if self.text_color.value:
-            update_dict["custom_text_color"] = self.text_color.value.strip()
-        if self.bar_color.value:
-            update_dict["custom_bar_color"] = self.bar_color.value.strip()
-        if self.accent_color.value:
-            update_dict["custom_accent_color"] = self.accent_color.value.strip()
-
-        if update_dict:
-            await customizations_collection.update_one({"_id": interaction.user.id}, {"$set": update_dict}, upsert=True)
-            await interaction.response.send_message("✅ Your custom 16M RGB colors have been applied!", ephemeral=True)
-        else:
-            await interaction.response.send_message("⚠️ No valid hex color values were provided.", ephemeral=True)
-
-class CustomizeView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-        self.add_item(FontSelect())
-        self.add_item(TemplateSelect())
-
-    @discord.ui.button(label="🎨 Custom 16M RGB Colors", style=discord.ButtonStyle.primary, custom_id="custom_rgb_btn")
-    async def rgb_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(RGBColorModal())
-
-    @discord.ui.button(label="✅ Save & Finish", style=discord.ButtonStyle.success, custom_id="finish_custom_btn")
-    async def finish_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(content="✅ Customization menu closed! Use `?stats` or `/stats` to preview your card.", view=None)
 
 class DistroSelect(Select):
     def __init__(self, placeholder, options, custom_id):
@@ -674,21 +582,6 @@ async def sunday_xp_event():
         await clear_event_state()
 
 @bot.event
-async def on_command_error(ctx, error):
-    if isinstance(error, commands.CommandNotFound):
-        return
-    elif isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ You do not have permissions to use this command.", ephemeral=True)
-    else:
-        print(f"Unhandled command error in {ctx.command}: {error}")
-
-@bot.tree.error
-async def on_app_command_error(interaction: discord.Interaction, error):
-    print(f"Unhandled App Command Error: {error}")
-    if not interaction.response.is_done():
-        await interaction.response.send_message("❌ An unexpected system error occurred.", ephemeral=True)
-
-@bot.event
 async def on_ready():
     print('==========================================')
     print(f'🤖 Bot Is Online: {bot.user.name}')
@@ -707,11 +600,11 @@ async def on_ready():
         except Exception as ce:
             print(f'   ⚠️ Could not count collections: {ce}')
     except Exception as e:
-        print('❌ MongoDB Connection Error: Database is NOT reachable!')
+        print('❌ MongoDB Connection Error: Database is NOT reachable! XP, warnings and configs will fail to save.')
         print(f'   Details: {e}')
     try:
         synced = await bot.tree.sync()
-        print(f'✅ Slash Commands: {len(synced)} command(s) synced globally.')
+        print(f'✅ Slash Commands: {len(synced)} command(s) synced globally. (May take up to 1 hour to appear everywhere the first time.)')
     except Exception as e:
         print(f'❌ Slash Command Sync Error: {e}')
     await bot.change_presence(activity=discord.Game(name="Managing the Server | ?help or /help"))
@@ -738,23 +631,6 @@ async def on_ready():
                 await clear_event_state()
     except Exception as e:
         print(f"Event state restore error: {e}")
-
-@bot.event
-async def on_voice_state_update(member, before, after):
-    if member.bot:
-        return
-    if before.channel is None and after.channel is not None:
-        voice_sessions[member.id] = time.time()
-    elif before.channel is not None and after.channel is None:
-        if member.id in voice_sessions:
-            join_time = voice_sessions.pop(member.id)
-            duration = time.time() - join_time
-            minutes = int(duration // 60)
-            if minutes > 0:
-                xp_gained = minutes * 2
-                if duration >= 7200:
-                    xp_gained += 5000
-                await add_xp(member.id, xp_gained)
 
 @bot.event
 async def on_member_join(member):
@@ -828,7 +704,7 @@ async def apply_warning(member, reason, guild):
         warning_doc = await warnings_collection.find_one({"_id": member.id})
         total_warns = warning_doc.get("count", 1) if warning_doc else 1
     except Exception as e:
-        print(f"Warning DB error: {e}")
+        print(f"Warning DB error (falling back to memory): {e}")
     if total_warns is None:
         if member.id not in warning_db:
             warning_db[member.id] = 0
@@ -845,7 +721,7 @@ async def apply_warning(member, reason, guild):
         admins = [m for m in guild.members if m.guild_permissions.administrator and not m.bot]
         for admin in admins:
             try:
-                await admin.send(f"🚨 **Administrator Alert:** The user {member.mention} (`{member.name}`) has reached the **5/5 warning limit** in {guild.name}.")
+                await admin.send(f"🚨 **Administrator Alert:** The user {member.mention} (`{member.name}`) has reached the **5/5 warning limit** in {guild.name}. They have officially run out of luck! Please review their logs and take manual action.")
             except Exception:
                 pass
         if warn_channel:
@@ -856,7 +732,11 @@ async def apply_warning(member, reason, guild):
             print(f"Warning reset DB error: {e}")
         warning_db[member.id] = 0
 
+# ==========================================
+# TERMINAL SANDBOX GÜVENLİK SİSTEMİ
+# ==========================================
 def check_code_safety(code):
+    """Zararlı kodları tespit eden AST tabanlı güvenlik filtresi."""
     try:
         tree = ast.parse(code)
     except SyntaxError as e:
@@ -875,6 +755,7 @@ def check_code_safety(code):
     return True, ""
 
 def execute_sandbox_sync(code):
+    """Kodun çalıştırıldığı izole alan."""
     safe, msg = check_code_safety(code)
     if not safe:
         return msg
@@ -907,13 +788,14 @@ def execute_sandbox_sync(code):
     return output_buffer.getvalue()
 
 async def execute_sandbox(code):
+    """Botu dondurmamak için executor üzerinden 3 saniyelik timeout ile kodu çalıştırır."""
     loop = asyncio.get_running_loop()
     try:
         future = loop.run_in_executor(None, execute_sandbox_sync, code)
         output = await asyncio.wait_for(future, timeout=3.0)
         return output
     except asyncio.TimeoutError:
-        return "Timeout Error: Code execution took too long."
+        return "Timeout Error: Code execution took too long (infinite loop?)."
     except Exception as e:
         return f"Execution Error: {e}"
 
@@ -922,6 +804,9 @@ async def on_message(message):
     if message.author == bot.user or message.author.bot:
         return
         
+    # ==========================================
+    # TERMINAL İŞLEYİCİSİ (En üstte olmalı ki spam algılamasın)
+    # ==========================================
     if message.channel.category_id == 1510339895032418506 and message.channel.name.startswith("terminal-"):
         is_mod = message.author.guild_permissions.manage_messages
         is_owner = str(message.author.id) in (message.channel.topic or "")
@@ -933,6 +818,7 @@ async def on_message(message):
                 await message.channel.delete(reason="User closed terminal.")
                 return
 
+            # Kod bloklarını (```python ... ```) temizle
             if code.startswith("```python"): code = code[9:]
             elif code.startswith("```py"): code = code[5:]
             elif code.startswith("```"): code = code[3:]
@@ -954,7 +840,7 @@ async def on_message(message):
                 await message.remove_reaction("⏳", bot.user)
             except Exception:
                 pass
-            return 
+            return # Terminal işlemlerinde XP veya Spam filtresini atla!
     
     global last_activity_time
     last_activity_time = time.time()
@@ -1028,6 +914,10 @@ async def on_message(message):
         return
     await bot.process_commands(message)
 
+def _is_subsequence(typed, full):
+    it = iter(full)
+    return all(ch in it for ch in typed)
+
 async def try_smart_command_match(message):
     prefix = "?"
     if message.author.bot or not message.content.startswith(prefix):
@@ -1038,29 +928,38 @@ async def try_smart_command_match(message):
     parts = body.split(maxsplit=1)
     typed_cmd = parts[0].lower()
     rest = parts[1] if len(parts) > 1 else ""
-
     if bot.get_command(typed_cmd) is not None:
         return False
-
     if len(typed_cmd) < 2:
         return False
 
-    all_cmds = []
-    cmd_map = {}
+    startswith_matches = []
+    subsequence_matches = []
     for cmd in bot.commands:
-        all_cmds.append(cmd.name)
-        cmd_map[cmd.name] = cmd.name
-        for alias in cmd.aliases:
-            all_cmds.append(alias)
-            cmd_map[alias] = cmd.name
+        all_names = [cmd.name] + list(cmd.aliases)
+        matched_start = any(name.lower().startswith(typed_cmd) for name in all_names)
+        matched_subseq = any(_is_subsequence(typed_cmd, name.lower()) for name in all_names)
+        if matched_start:
+            startswith_matches.append(cmd)
+        elif matched_subseq:
+            subsequence_matches.append(cmd)
 
-    matches = difflib.get_close_matches(typed_cmd, all_cmds, n=1, cutoff=0.4)
-    if matches:
-        best_match = cmd_map[matches[0]]
-        message.content = f"{prefix}{best_match} {rest}".strip()
+    candidates = startswith_matches if startswith_matches else subsequence_matches
+    unique_candidates = list({c.name: c for c in candidates}.values())
+
+    if len(unique_candidates) == 1:
+        matched_cmd = unique_candidates[0]
+        new_content = f"{prefix}{matched_cmd.name} {rest}".strip()
+        message.content = new_content
         await bot.process_commands(message)
         return True
-
+    elif 1 < len(unique_candidates) <= 8:
+        options = ", ".join(f"`{prefix}{c.name}`" for c in unique_candidates)
+        await message.channel.send(
+            f"❓ I'm not sure which command `{prefix}{typed_cmd}` was meant to be. Did you mean: {options}?\n"
+            f"Tip: use `?shortcuts` to see all the official short forms."
+        )
+        return True
     return False
 
 @bot.hybrid_command(name="terminal", aliases=["term"], description="Opens a private Python sandbox terminal.")
@@ -1069,6 +968,7 @@ async def terminal(ctx):
     if not category:
         return await ctx.send("❌ Error: The required category for terminals was not found.", ephemeral=True)
         
+    # Check if user already has a terminal
     existing_channel = discord.utils.get(category.text_channels, name=f"terminal-{ctx.author.name.lower()}")
     if existing_channel:
         return await ctx.send(f"❌ You already have an active terminal: {existing_channel.mention}", ephemeral=True)
@@ -1094,11 +994,11 @@ async def terminal(ctx):
         title="🐍 Python Sandbox Terminal",
         description=f"Welcome {ctx.author.mention}! This channel is your isolated Python environment.\n\n"
                     f"🔒 **Security Rules:**\n"
-                    f"• Imports, file I/O, and dangerous functions are strictly **BLOCKED**.\n"
+                    f"• Imports, file I/O, and dangerous functions (`eval`, `exec`) are strictly **BLOCKED**.\n"
                     f"• Infinite loops will automatically time out after 3 seconds.\n"
                     f"• You cannot interact with or harm the Discord bot or the server.\n\n"
                     f"💡 **How to use:**\n"
-                    f"Just type your Python code directly into the chat and send it!\n\n"
+                    f"Just type your Python code directly into the chat and send it! (Code blocks work too).\n\n"
                     f"🛑 **To Exit:**\n"
                     f"Type `close()` or `exit()` to delete this channel.",
         color=discord.Color.green()
@@ -1162,7 +1062,7 @@ async def messagesendadminpingu(ctx, channel: discord.TextChannel = None):
     global REMINDER_CHANNEL_ID
     target_channel = channel or ctx.channel
     REMINDER_CHANNEL_ID = target_channel.id
-    await ctx.send(f"✅ The automated rules reminder will now be sent to {target_channel.mention}.")
+    await ctx.send(f"✅ The automated rules reminder will now be sent to {target_channel.mention} (only when the chat has been active recently).")
 
 @bot.hybrid_command(name="clear", aliases=["purge", "c"], description="Deletes all messages in this channel with confirmation (mod).")
 @commands.has_permissions(manage_messages=True)
@@ -1283,8 +1183,7 @@ async def clearwarnings(ctx, member: discord.Member):
 @bot.hybrid_command(name="fixlevels", aliases=["recalclevels", "syncxp"], description="Recalculates everyone's level based on total XP.")
 @commands.has_permissions(administrator=True)
 async def fixlevels(ctx):
-    if ctx.interaction:
-        await ctx.defer()
+    await ctx.defer() if ctx.interaction else None
     try:
         all_users = await xp_collection.find({}).to_list(length=None)
     except Exception as e:
@@ -1322,6 +1221,14 @@ async def dbstatus(ctx):
         embed.add_field(name="users_xp", value=f"`{xp_count}` documents", inline=True)
         embed.add_field(name="user_warnings", value=f"`{warn_count}` documents", inline=True)
         embed.add_field(name="server_config", value=f"`{config_count}` documents", inline=True)
+        if warn_count == 0:
+            embed.add_field(
+                name="ℹ️ Note",
+                value="`user_warnings` is empty. This is expected if no one has been warned yet. "
+                      "If you gave warnings and still see 0, make sure you're viewing the `AdminPinguDB` "
+                      "database (not the default one) in your MongoDB client.",
+                inline=False
+            )
     except Exception as e:
         embed.add_field(name="Collection Error", value=f"`{e}`", inline=False)
     await ctx.send(embed=embed)
@@ -1342,34 +1249,7 @@ async def unban(ctx, user_id: int):
     except Exception as e:
         await ctx.send(f"❌ Failed to unban: {e}")
 
-@bot.hybrid_command(name="customize", description="Customize your stats card background image, fonts, and 16M RGB colors.")
-async def customize(ctx, background_image: discord.Attachment = None):
-    if ctx.interaction:
-        await ctx.defer(ephemeral=True)
-
-    if background_image:
-        if background_image.content_type in ["image/png", "image/jpeg", "image/webp", "image/jpg"]:
-            await customizations_collection.update_one(
-                {"_id": ctx.author.id}, 
-                {"$set": {"bg_image": background_image.url}}, 
-                upsert=True
-            )
-            msg = "✅ Background image saved to MongoDB! Use the exclusive menu below to adjust fonts and RGB colors."
-        else:
-            msg = "❌ Invalid file type! Please upload a PNG, JPG, or WEBP."
-    else:
-        msg = "🎨 Welcome to the Customizer! Select your fonts and colors below.\n*(To set a background image, run this command again and attach an image!)*"
-
-    if ctx.interaction:
-        await ctx.interaction.followup.send(msg, view=CustomizeView(), ephemeral=True)
-    else:
-        try:
-            await ctx.message.delete()
-        except Exception:
-            pass
-        await ctx.send(msg, view=CustomizeView(), delete_after=120)
-
-@bot.hybrid_command(name="stats", aliases=["st", "profile", "rank", "lvl"], description="Shows a user's customized level and XP card.")
+@bot.hybrid_command(name="stats", aliases=["st", "profile", "rank", "lvl"], description="Shows a user's level and XP info.")
 async def stats(ctx, member: discord.Member = None):
     if ctx.interaction:
         await ctx.defer()
@@ -1380,86 +1260,26 @@ async def stats(ctx, member: discord.Member = None):
         user_data = None
     if not user_data:
         user_data = {"total": 0, "level": 1}
-        
-    try:
-        custom_data = await customizations_collection.find_one({"_id": member.id})
-    except Exception:
-        custom_data = None
-    if not custom_data:
-        custom_data = {}
-    
-    current_xp = user_data.get("total", 0)
+    current_xp = user_data["total"]
     current_level = get_level_from_total_xp(current_xp)
     prev_level_xp = get_xp_requirement(current_level)
     next_level_xp = get_xp_requirement(current_level + 1)
     xp_into_level = current_xp - prev_level_xp
-    xp_needed_for_level = next_level_xp - prev_level_xp
+    xp_needed_for_level = next_level_xp - prev_level_xp 
     percentage = min(max(xp_into_level / xp_needed_for_level, 0.0), 1.0) if xp_needed_for_level > 0 else 1.0
-
-    bg_url = custom_data.get("bg_image")
-    template = custom_data.get("template", "dark")
-    font_choice = custom_data.get("font", "arial")
-
-    bg_color = "#1e1e2e"
-    text_color = "#ffffff"
-    bar_color = "#cba6f7"
-    panel_color = "#313244"
-    accent_color = "#cba6f7"
-
-    if template == "neon":
-        bg_color, text_color, bar_color, panel_color, accent_color = "#000000", "#00ffcc", "#ff00ff", "#111111", "#ff00ff"
-    elif template == "retro":
-        bg_color, text_color, bar_color, panel_color, accent_color = "#2b213a", "#ffaa00", "#00ffff", "#4a3b5c", "#00ffff"
-    elif template == "cyber":
-        bg_color, text_color, bar_color, panel_color, accent_color = "#0f0f0f", "#ffff00", "#ff003c", "#222222", "#ff003c"
-    elif template == "light":
-        bg_color, text_color, bar_color, panel_color, accent_color = "#ffffff", "#000000", "#0055ff", "#eeeeee", "#0055ff"
-
-    if custom_data.get("custom_text_color"):
-        text_color = custom_data.get("custom_text_color")
-    if custom_data.get("custom_bar_color"):
-        bar_color = custom_data.get("custom_bar_color")
-    if custom_data.get("custom_accent_color"):
-        accent_color = custom_data.get("custom_accent_color")
-
-    try:
-        if bg_url:
-            bg_img = await load_image_async(bg_url)
-            background = Editor(bg_img).resize((900, 300))
-        else:
-            background = Editor(Canvas((900, 300), color=bg_color))
-    except Exception:
-        background = Editor(Canvas((900, 300), color=bg_color))
-
-    try:
-        main_font = Font(f"fonts/{font_choice}.ttf", size=45)
-        sub_font = Font(f"fonts/{font_choice}.ttf", size=30)
-        small_font = Font(f"fonts/{font_choice}.ttf", size=22)
-    except Exception:
-        main_font = Font.poppins(variant="bold", size=45)
-        sub_font = Font.poppins(variant="regular", size=30)
-        small_font = Font.poppins(variant="light", size=22)
-
-    background.rectangle((20, 20), width=860, height=260, color=panel_color, radius=20, outline=accent_color, stroke_width=3)
-
-    try:
-        avatar_image = await load_image_async(str(member.display_avatar.url))
-        profile = Editor(avatar_image).resize((200, 200)).circle_image()
-        background.paste(profile, (50, 50))
-    except Exception:
-        pass
-
-    background.text((300, 70), member.name.upper(), font=main_font, color=text_color)
-    background.text((300, 140), f"LEVEL {current_level}", font=sub_font, color=bar_color)
-    background.text((820, 140), f"{current_xp} / {next_level_xp} XP", font=small_font, color=text_color, align="right")
-
-    background.rectangle((300, 200), width=520, height=35, color="#555555", radius=17)
-    fill_width = int(520 * percentage)
-    if fill_width > 0:
-        background.rectangle((300, 200), width=fill_width, height=35, color=bar_color, radius=17)
-
-    file = discord.File(fp=background.image_bytes, filename="stats.png")
-    await ctx.send(file=file)
+    bar_length = 10
+    filled_blocks = int(percentage * bar_length)
+    empty_blocks = bar_length - filled_blocks
+    progress_bar = "█" * filled_blocks + "░" * empty_blocks
+    xp_remaining = max(next_level_xp - current_xp, 0)
+    embed = discord.Embed(title=f"📊 {member.name}'s Profile", color=discord.Color.purple())
+    embed.set_thumbnail(url=member.display_avatar.url)
+    embed.add_field(name="Current Level", value=f"`Level {current_level}`", inline=True)
+    embed.add_field(name="Total XP", value=f"`{current_xp} XP`", inline=True)
+    embed.add_field(name="Next Level At", value=f"`{next_level_xp} XP`", inline=True)
+    embed.add_field(name="XP Remaining", value=f"`{xp_remaining} XP`", inline=True)
+    embed.add_field(name="Progress", value=f"`[{progress_bar}] {int(percentage * 100)}%`", inline=False)
+    await ctx.send(embed=embed)
 
 @bot.hybrid_command(name="leaderstats", aliases=["ls", "lstats", "top", "ldrst", "leaders"], description="Shows the top 15 most active users.")
 async def leaderstats(ctx):
@@ -1666,6 +1486,87 @@ async def neofetch(ctx):
         r"                      ",
         r"                      "
     ]
+    ALMA_ASCII = [
+        r"       /\/\           ",
+        r"      / /  \          ",
+        r"     / / /\ \         ",
+        r"    /_/_/  \_\        ",
+        r"                      ",
+        r"                      ",
+        r"                      "
+    ]
+    ROCKY_ASCII = [
+        r"      .---.           ",
+        r"     /   / \          ",
+        r"    /   /   \         ",
+        r"   /   /_____\        ",
+        r"  /_________/         ",
+        r"                      ",
+        r"                      "
+    ]
+    OPENSUSE_ASCII = [
+        r"     _______          ",
+        r"    / ____  \         ",
+        r"   / /    / /         ",
+        r"  / /____/ /          ",
+        r" /________/           ",
+        r"                      ",
+        r"                      "
+    ]
+    ELEMENTARY_ASCII = [
+        r"     _______          ",
+        r"    / ____  \         ",
+        r"   / /   / /          ",
+        r"  / /___/ /           ",
+        r" /_______/            ",
+        r"                      ",
+        r"                      "
+    ]
+    CENTOS_ASCII = [
+        r"      _____           ",
+        r"     / ___/           ",
+        r"    / /__             ",
+        r"   / ___/             ",
+        r"  /_/                 ",
+        r"                      ",
+        r"                      "
+    ]
+    GENTOO_ASCII = [
+        r"     _----_           ",
+        r"   /   ..   \         ",
+        r"  (    __    )        ",
+        r"   \  /  \  /         ",
+        r"    '-'  '-'          ",
+        r"                      ",
+        r"                      "
+    ]
+    KALI_ASCII = [
+        r"     .---.            ",
+        r"    /     \           ",
+        r"   |  O O  |          ",
+        r"    \  ^  /           ",
+        r"     '---'            ",
+        r"                      ",
+        r"                      "
+    ]
+    LUBUNTU_ASCII = [
+        r"      /\              ",
+        r"     /  \             ",
+        r"    / /\ \            ",
+        r"   / /  \ \           ",
+        r"  /_/    \_\          ",
+        r"                      ",
+        r"                      "
+    ]
+    MX_ASCII = [
+        r"    \\  //            ",
+        r"     \\//             ",
+        r"      //\\            ",
+        r"     //  \\           ",
+        r"                      ",
+        r"                      ",
+        r"                      "
+    ]
     ARTIX_ASCII = [
         r"        /\            ",
         r"       /  \           ",
@@ -1723,24 +1624,39 @@ async def neofetch(ctx):
         1521870173861056655: ("Debian", DEBIAN_ASCII),
         1521870110552227910: ("Ubuntu", UBUNTU_ASCII),
         1521868791942742026: ("Linux Mint", MINT_ASCII),
-        1521871399403393044: ("Kali Linux", DEBIAN_ASCII),
+        1521871399403393044: ("Kali Linux", KALI_ASCII),
         1521871613958819860: ("Pop!_OS", POP_ASCII),
         1521871816321404969: ("Zorin OS", UBUNTU_ASCII),
-        1521870225228955798: ("Gentoo", TUX_ASCII),
+        1521871679368986655: ("MX Linux", MX_ASCII),
+        1521871896117776468: ("Deepin", DEBIAN_ASCII),
+        1521872016901406720: ("Elementary OS", ELEMENTARY_ASCII),
+        1522137253856415784: ("Parrot OS", DEBIAN_ASCII),
+        1521870225228955798: ("Gentoo", GENTOO_ASCII),
         1521872173688422420: ("Nobara", FEDORA_ASCII),
-        1521872360393670819: ("Fedora", FEDORA_ASCII)
+        1521872360393670819: ("Fedora", FEDORA_ASCII),
+        1521872534117679206: ("Red Star OS", TUX_ASCII),
+        1521872635968098344: ("Void Linux", TUX_ASCII),
+        1521872683803873432: ("NixOS", TUX_ASCII),
+        1521872759691542588: ("Alpine Linux", TUX_ASCII),
+        1521873026776301608: ("openSUSE", OPENSUSE_ASCII),
+        1521873129868365964: ("Slackware", TUX_ASCII)
     }
 
     win_role_mapping = {
         1521909235594825941: ("Windows 11", WIN11_ASCII),
         1521909403496742973: ("Windows 10", WIN10_ASCII),
         1521909451739893982: ("Windows 8", WINDOWS_ASCII),
-        1521909341802725427: ("Windows 7", WINDOWS_ASCII)
+        1521909341802725427: ("Windows 7", WINDOWS_ASCII),
+        1522212167393214514: ("Windows Vista", WINDOWS_ASCII),
+        1522212092663300248: ("Windows XP", WINDOWS_ASCII)
     }
 
     bsd_role_mapping = {
         1521909235594825999: ("FreeBSD", BSD_ASCII),
-        1522211951709519872: ("GhostBSD", BSD_ASCII)
+        1522211951709519872: ("GhostBSD", BSD_ASCII),
+        1522211033073324234: ("OpenBSD", BSD_ASCII),
+        1522211796532854826: ("DragonFly BSD", BSD_ASCII),
+        1522211599744499834: ("NetBSD", BSD_ASCII)
     }
 
     selected_linux = None
@@ -1768,9 +1684,11 @@ async def neofetch(ctx):
         final_os = selected_bsd[0]
         final_ascii = selected_bsd[1]
 
+    # Yetki Seviyesi Kontrolü (Mod mu değil mi?)
     is_mod = ctx.author.guild_permissions.manage_messages or ctx.author.guild_permissions.administrator
     auth_level = "/Root" if is_mod else "/User"
 
+    # Uptime Hesaplanması (Kullanıcının sunucuya katılmasından itibaren geçen süre)
     join_time = ctx.author.joined_at
     if join_time:
         now = datetime.datetime.now(datetime.timezone.utc)
@@ -1853,39 +1771,175 @@ async def packagemap(ctx, action: str = "install"):
     action = action.lower().strip()
     cheatsheet = {
         "install": {
-            "Debian/Ubuntu (apt)": "sudo apt install <package>",
-            "Fedora/RHEL (dnf)": "sudo dnf install <package>",
-            "Arch (pacman)": "sudo pacman -S <package>",
-            "openSUSE (zypper)": "sudo zypper install <package>",
-            "Alpine (apk)": "sudo apk add <package>"
+            "Debian/Ubuntu (apt)": "sudo apt install <paket>",
+            "Fedora/RHEL (dnf)": "sudo dnf install <paket>",
+            "Arch (pacman)": "sudo pacman -S <paket>",
+            "openSUSE (zypper)": "sudo zypper install <paket>",
+            "Alpine (apk)": "sudo apk add <paket>"
         },
         "remove": {
-            "Debian/Ubuntu (apt)": "sudo apt remove <package>",
-            "Fedora/RHEL (dnf)": "sudo dnf remove <package>",
-            "Arch (pacman)": "sudo pacman -R <package>",
-            "openSUSE (zypper)": "sudo zypper remove <package>",
-            "Alpine (apk)": "sudo apk del <package>"
+            "Debian/Ubuntu (apt)": "sudo apt remove <paket>",
+            "Fedora/RHEL (dnf)": "sudo dnf remove <paket>",
+            "Arch (pacman)": "sudo pacman -R <paket>",
+            "openSUSE (zypper)": "sudo zypper remove <paket>",
+            "Alpine (apk)": "sudo apk del <paket>"
         },
         "update": {
             "Debian/Ubuntu (apt)": "sudo apt update && sudo apt upgrade",
             "Fedora/RHEL (dnf)": "sudo dnf upgrade --refresh",
             "Arch (pacman)": "sudo pacman -Syu",
-            "openSUSE (zypper)": "sudo zypper update",
-            "Alpine (apk)": "sudo apk upgrade"
+            "openSUSE (zypper)": "sudo zypper refresh && sudo zypper update",
+            "Alpine (apk)": "sudo apk update && sudo apk upgrade"
+        },
+        "search": {
+            "Debian/Ubuntu (apt)": "apt search <paket>",
+            "Fedora/RHEL (dnf)": "dnf search <paket>",
+            "Arch (pacman)": "pacman -Ss <paket>",
+            "openSUSE (zypper)": "zypper search <paket>",
+            "Alpine (apk)": "apk search <paket>"
         }
     }
-    
     if action not in cheatsheet:
-        return await ctx.send("❌ Valid actions: `install`, `remove`, `update`.")
-        
-    embed = discord.Embed(title=f"📦 Package Map: '{action}'", color=discord.Color.gold())
-    for os_name, cmd in cheatsheet[action].items():
-        embed.add_field(name=os_name, value=f"`{cmd}`", inline=False)
-        
+        return await ctx.send(f"❌ Unknown action `{action}`. Try one of: `install`, `remove`, `update`, `search`.")
+    table = cheatsheet[action]
+    desc = "\n".join([f"**{distro}**\n`{cmd}`" for distro, cmd in table.items()])
+    embed = discord.Embed(title=f"📦 Package Manager Cheatsheet — {action}", description=desc, color=discord.Color.blurple())
     await ctx.send(embed=embed)
 
+@bot.hybrid_command(name="distrobattle", aliases=["db", "distrowar"], description="Pits two random Linux distros against each other.")
+async def distrobattle(ctx):
+    distros = [
+        "Arch Linux", "Ubuntu", "Fedora", "Debian", "Gentoo", "NixOS",
+        "Void Linux", "Manjaro", "openSUSE", "Alpine Linux", "Slackware", "CachyOS"
+    ]
+    fighter_a, fighter_b = random.sample(distros, 2)
+    winner = random.choice([fighter_a, fighter_b])
+    taunts = [
+        "compiled its way to victory in record time.",
+        "won simply because it didn't need a GUI to fight.",
+        "took the crown after the other's package manager crashed mid-battle.",
+        "claimed victory using nothing but a rolling release and pure spite.",
+        "won because 'I use Arch btw' carries actual combat power.",
+        "outlasted the opponent with superior documentation."
+    ]
+    embed = discord.Embed(
+        title="⚔️ Distro Battle Arena",
+        description=f"**{fighter_a}** 🆚 **{fighter_b}**\n\n🏆 **{winner}** {random.choice(taunts)}",
+        color=discord.Color.dark_gold()
+    )
+    await ctx.send(embed=embed)
+
+@bot.hybrid_command(name="uptime", aliases=["up"], description="Shows how long the bot has been running.")
+async def uptime(ctx):
+    uptime_seconds = int(time.time() - BOT_START_TIME)
+    days, rem = divmod(uptime_seconds, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, seconds = divmod(rem, 60)
+    embed = discord.Embed(title="⏱️ System Uptime", color=discord.Color.dark_teal())
+    embed.add_field(name="Process", value="`adminpingu-bot`", inline=True)
+    embed.add_field(name="Status", value="`running`", inline=True)
+    embed.add_field(name="Uptime", value=f"`{days}d {hours}h {minutes}m {seconds}s`", inline=False)
+    await ctx.send(embed=embed)
+
+@bot.hybrid_command(name="shortcuts", aliases=["sc", "aliases"], description="Lists all command shortcuts.")
+async def shortcuts(ctx):
+    embed = discord.Embed(
+        title="⚡ Command Shortcuts",
+        description="Full commands and their short forms. Both `?` prefix and `/` slash work with the full name.\n"
+                     "**Bonus:** if you type an unrecognized shortcut like `?ldrst`, the bot will try to guess "
+                     "what you meant automatically, as long as it's an unambiguous match.",
+        color=discord.Color.teal()
+    )
+    embed.add_field(
+        name="🛡️ Moderation",
+        value="`?roles` → `osroles`, `distro`\n"
+              "`?sudolock` → `lock` | `?sudounlock` → `unlock`\n"
+              "`?mute` → `m`, `timeout` | `?unmute` → `um`\n"
+              "`?clear` → `purge`, `c`\n"
+              "`?warning` → `warn` | `?warnings` → `warns`, `w`\n"
+              "`?clearwarnings` → `cw`, `clwarns`\n"
+              "`?ban` → `b` | `?unban` → `ub`",
+        inline=False
+    )
+    embed.add_field(
+        name="📊 Stats & Utilities",
+        value="`?stats` → `st`, `profile`, `rank`, `lvl`\n"
+              "`?leaderstats` → `ls`, `lstats`, `top`, `ldrst`, `leaders`\n"
+              "`?serverinfo` → `sinfo`, `si`\n"
+              "`?help` → `h`, `commands`, `cmds`\n"
+              "`?dbstatus` → `dbcheck`, `mongostatus`\n"
+              "`?fixlevels` → `recalclevels`, `syncxp`",
+        inline=False
+    )
+    embed.add_field(
+        name="🎮 Fun & Random",
+        value="`?weather` → `wx` | `?tankfact` → `tank`, `tf` | `?mmafact` → `mma`, `mf`\n"
+              "`?pythontip` → `pytip`, `ptip` | `?randomlinux` → `rl`, `linuxtip`\n"
+              "`?whoami` → `wa` | `?avatar` → `av`, `pfp` | `?ping` → `latency`, `pg`\n"
+              "`?coinflip` → `cf`, `flip` | `?diceroll` → `dice`, `roll`\n"
+              "`?neofetch` → `nf`, `sysinfo` | `?cowsay` → `cow` | `?fortune` → `ft`\n"
+              "`?packagemap` → `pkg`, `pkgcheat` | `?distrobattle` → `db`, `distrowar`\n"
+              "`?uptime` → `up` | `?gif` → `g` | `?joke` → `j`",
+        inline=False
+    )
+    await ctx.send(embed=embed)
+
+@bot.hybrid_command(name="help", aliases=["h", "commands", "cmds"], description="Lists all bot commands.")
+async def help(ctx):
+    embed = discord.Embed(
+        title="🐧 AdminPingu Command List", 
+        description="Every command works with **both** `?prefix` and `/slash`. Use `?shortcuts` to see every alias, "
+                     "and don't worry about typing the full name — a close-enough shortcut usually gets auto-detected too.",
+        color=discord.Color.dark_green()
+    )
+    embed.add_field(
+        name="🛡️ Moderation Commands", 
+        value="`?roles` - Opens the role selection menu\n"
+              "`?sudolock` / `?sudounlock` - Locks/Unlocks a text channel\n"
+              "`?mute <user> [h]` / `?unmute <user>` - Manages timeouts\n"
+              "`?clear` - Mass deletes messages in a channel\n"
+              "`?warning <user> [reason]` - Gives a user a warning\n"
+              "`?warnings <user>` - Shows a user's warning history\n"
+              "`?clearwarnings <user>` - Resets a user's warnings to 0\n"
+              "`?ban <user> [reason]` / `?unban <id>` - Manages bans\n"
+              "`?setnewschannel` - Sets the channel for tech news\n"
+              "`?setjoinchannel` - Sets the channel for welcome banners\n"
+              "`?messagesendadminpingu` - Sets the channel for the automated rules reminder\n"
+              "`?fixlevels` - Recalculates everyone's level against the current XP curve\n"
+              "`?dbstatus` - Checks MongoDB connectivity and collection counts", 
+            inline=False
+    )
+    embed.add_field(
+        name="📊 Stats & Utilities", 
+        value="`?stats [user]` - View a user's level and XP\n"
+              "`?leaderstats` - See the top 15 users in the server\n"
+              "`?serverinfo` - Display information about this server\n"
+              "`?shortcuts` - See every command's short alias", 
+            inline=False
+    )
+    embed.add_field(
+        name="🎮 Fun & Random", 
+        value="`?weather <city>` - Get the current weather\n"
+              "`?randomlinux` / `?whoami` / `?pythontip` - Tech stuff\n"
+              "`?neofetch` / `?cowsay <text>` / `?fortune` - Linux terminal fun\n"
+              "`?packagemap <action>` / `?distrobattle` - More Linux nerdery\n"
+              "`?uptime` - How long the bot has been running\n"
+              "`?tankfact` / `?mmafact` - Interesting facts\n"
+              "`?tea` - Brew some tea for someone\n"
+              "`?coinflip` / `?diceroll` / `?8ball` / `?joke` / `?gif` - Minigames", 
+            inline=False
+    )
+    embed.set_footer(text="Arguments in [brackets] are optional, <angle brackets> are required. Try /help too!")
+    await ctx.send(embed=embed)
+
+@bot.listen()
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ **Access Denied:** You don't have permission to use this command!")
+    elif isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send(f"❌ **Syntax Error:** You are missing some arguments! Check `?help` for usage.")
+    else:
+        pass 
+
 keep_alive()
-try:
-    bot.run(os.environ.get("TOKEN"))
-except Exception as e:
-    print(f"CRITICAL ERROR: Failed to launch the Discord bot. Details: {e}")
+bot.run(os.environ["DISCORD_TOKEN"])
