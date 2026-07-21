@@ -37,7 +37,7 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix="?", intents=intents, help_command=None)
 
-BOT_START_TIME = time.time()  # YENİ: ?uptime / /uptime komutu için botun ne zaman ayağa kalktığını tutar
+BOT_START_TIME = time.time()
 
 LOG_CHANNEL_ID = 123456789012345678       
 WARNINGS_CHANNEL_ID = 1521880436270301354 
@@ -50,9 +50,6 @@ MEDIA_ROLE_ID = 1521875919864856714
 
 ACTIVE_EVENT_CHANNEL_ID = None
 
-# BUG FIX / YENİ ÖZELLİK: Hatırlatma mesajı, chat'te uzun süredir kimse yazmıyorsa artık gönderilmiyor.
-# Böylece gece kimse yokken kanal boş yere "kural üstüne kural" ile kirlenmiyor.
-# Bu süreyi (saniye cinsinden) istediğin gibi değiştirebilirsin. Şu an 1 saat (3600 sn) olarak ayarlı.
 REMINDER_INACTIVITY_THRESHOLD_SECONDS = 3600
 
 LEVEL_ROLES = {
@@ -188,12 +185,8 @@ STRICT_BANNED_WORDS = {
 
 SQUISHED_SEVERE_WORDS = ["fuck", "nigger", "nigga", "porn", "pussy", "bitch", "faggot", "whore"]
 
-# NOT: 'v': 'u' eşleşmesi kaldırıldı; normal kelimelerdeki 'v' harflerini gereksiz yere
-# bozarak yanlış pozitif (masum kelimenin yasaklı sayılması) riskini artırıyordu.
 LEET_DICT = {'@': 'a', '4': 'a', '1': 'i', '!': 'i', '0': 'o', '3': 'e', '$': 's', '5': 's', '7': 't', '+': 't'}
 
-# "f.u.c.k" veya "f_u_c_k" gibi noktalama ile bölünmüş yazımları birleştirmek için kaldırılan karakterler.
-# Gerçek boşluklara DOKUNULMUYOR, böylece farklı kelimeler birbirine karışmıyor.
 OBFUSCATION_CHARS_TABLE = str.maketrans('', '', ".,*_~'\"-|")
 
 def normalize_for_filter(text):
@@ -205,17 +198,12 @@ def normalize_for_filter(text):
     return text
 
 def collapse_repeats(word):
-    # Sadece 3 veya daha fazla art arda gelen AYNI harfi tek harfe indirir (örn: "fuuuuck" -> "fuck").
-    # Eski kod 2 tekrarı bile indiriyordu (örn: "book" -> "bok"), bu da normal, çift harfli
-    # kelimelerin yanlışlıkla farklı bir kelimeye dönüşme riskini artırıyordu. Artık daha güvenli.
     return re.sub(r'(.)\1{2,}', r'\1', word)
 
 def clean_text_for_filter(text):
-    # Geriye dönük uyumluluk için tutuluyor; artık normalize_for_filter'a yönlendiriyor.
     return normalize_for_filter(text)
 
 def strip_html_tags(raw_html):
-    """RSS özetlerinin içindeki HTML etiketlerini temizler, embed içinde çirkin görünmesini engeller."""
     if not raw_html:
         return ""
     clean = re.sub('<[^<]+?>', '', raw_html)
@@ -230,18 +218,6 @@ def strip_html_tags(raw_html):
     return clean
 
 def is_heavy_swear(text):
-    """
-    AKILLI KÜFÜR FİLTRESİ:
-    Eski sistem tüm mesajı boşluksuz tek bir bloğa çeviriyordu; bu yüzden "cucumber" gibi tamamen
-    masum bir kelime, mesajdaki komşu kelimelerle birleşince yanlışlıkla yasaklı kelime gibi
-    algılanabiliyordu. Yeni sistem her kelimeyi TEK TEK ve kelime sınırlarına saygı duyarak
-    kontrol eder; böylece farklı kelimeler birbirine karışıp yanlış alarm üretemez.
-    Yine de şunları yakalamaya devam eder:
-      1) Leetspeak yazımlar (n1gg3r, sh!t gibi)
-      2) Harf uzatma bypass'ı (fuuuuck gibi)
-      3) Noktalama ile bölünmüş yazımlar (f.u.c.k, f_u_c_k gibi)
-      4) Harf harf boşluklu yazımlar (f u c k gibi)
-    """
     normalized = normalize_for_filter(text)
     raw_tokens = normalized.split()
     clean_tokens = [re.sub(r'[^a-z]', '', t) for t in raw_tokens]
@@ -254,8 +230,6 @@ def is_heavy_swear(text):
         if collapsed in STRICT_BANNED_WORDS:
             return True
 
-    # Harf harf boşluklu bypass denemelerini yakalamak için: ardışık tek harfli
-    # token'ları geçici olarak birleştirip kontrol ediyoruz (örn: "f u c k" -> "fuck").
     buffer = ""
     for token in clean_tokens:
         if len(token) == 1:
@@ -282,69 +256,41 @@ try:
     db = mongo_client["AdminPinguDB"]
     xp_collection = db["users_xp"]
     config_collection = db["server_config"]
-    warnings_collection = db["user_warnings"]  # YENİ: Uyarılar artık kalıcı olarak Mongo'da tutuluyor
+    warnings_collection = db["user_warnings"]
 except Exception as e:
     print(f"MongoDB Initialization Error: {e}")
 
-warning_db = {}  # Mongo'ya ulaşılamazsa devreye giren yedek (fallback) hafıza
+warning_db = {}
 user_message_cache = {} 
 xp_message_counter = {} 
 LAST_NEWS_URL = "" 
-last_activity_time = time.time()  # YENİ: Reminder görevinin sohbet aktivitesini takip etmesi için
+last_activity_time = time.time()
 
 def _xp_delta_for_level(level):
-    """
-    Bir kullanıcının `level` seviyesinden `level + 1` seviyesine geçmesi için gereken XP miktarını
-    hesaplar. Eski formül (n//2 tabanlı üstel artış) matematiksel olarak bozuktu: Level 53'te
-    bir sonraki seviye 72.900 TOPLAM xp istiyordu ki bu, level 100'e yakın bir zorluktu -
-    tamamen dengesizdi.
-
-    YENİ SİSTEM (istenen zorluk eğrisine göre tasarlandı):
-      • Level   1-10 : KOLAY-ORTA  -> hızlı, akıcı bir başlangıç
-      • Level  10-50 : ORTA        -> kademeli, sürdürülebilir bir artış
-      • Level  50-90 : ORTA-ZOR    -> belirgin şekilde daha yavaş kazanılır
-      • Level  90-100: ZOR         -> son 10 seviyede ekstra bir "zorluk çarpanı" devreye girer,
-                                       böylece 90'dan 100'e çıkmak gerçek bir efor ister.
-    """
     base = 51.824 * (level ** 1.166)
     if level >= 90:
-        # 90. seviyeden itibaren devreye giren ekstra zorluk çarpanı (90'da x1.0, 99'da ~x2.9)
         t = (level - 89) / 10.0
         hard_multiplier = 1.0 + 1.6 * (t ** 1.6)
     else:
         hard_multiplier = 1.0
     return max(50, round(base * hard_multiplier))
 
-
-# YENİ: Performans için 1-200 arası seviyelerin kümülatif XP eşikleri başlangıçta bir kere
-# hesaplanıp tabloya yazılır. Böylece her mesajda ağır matematik tekrar tekrar çalışmaz.
 _MAX_PRECOMPUTED_LEVEL = 200
 _XP_REQUIREMENT_TABLE = [0]
 for _lvl in range(1, _MAX_PRECOMPUTED_LEVEL + 1):
     _XP_REQUIREMENT_TABLE.append(_XP_REQUIREMENT_TABLE[-1] + _xp_delta_for_level(_lvl))
 
-
 def get_xp_requirement(level):
-    """
-    Belirtilen seviyeye ulaşmak için gereken TOPLAM (kümülatif) XP miktarını döndürür.
-    Level 1 -> 0 XP, Level 10 -> ~3.132 XP, Level 50 -> ~112.037 XP,
-    Level 90 -> ~404.126 XP, Level 100 -> ~582.879 XP.
-    """
     if level <= 0:
         return 0
     if level < len(_XP_REQUIREMENT_TABLE):
         return _XP_REQUIREMENT_TABLE[level]
-    # Tablodan taşan (level > 200) çok nadir bir durum için formülü canlı hesapla.
     total = _XP_REQUIREMENT_TABLE[-1]
     for lvl in range(_MAX_PRECOMPUTED_LEVEL + 1, level + 1):
         total += _xp_delta_for_level(lvl)
     return total
 
-
 def get_level_from_total_xp(total_xp):
-    """YENİ: Bir kullanıcının toplam XP'sine bakarak GERÇEK seviyesini hesaplar.
-    ?fixlevels komutu ve add_xp fonksiyonu tarafından kullanılır; formül değiştiğinde
-    kullanıcıların level alanı XP'leriyle tutarsız kalmasın diye vardır."""
     level = 1
     while total_xp >= get_xp_requirement(level + 1):
         level += 1
@@ -378,7 +324,6 @@ async def load_event_state():
         return None
 
 async def resume_event_countdown(channel, remaining_seconds, announcement_channel_id):
-    """Bot yeniden başlatıldığında devam eden bir 3x XP etkinliğinin geri kalan süresini tamamlar."""
     global ACTIVE_EVENT_CHANNEL_ID
     try:
         await asyncio.sleep(remaining_seconds)
@@ -405,9 +350,6 @@ async def add_xp(user_id, amount):
         new_weekly = user_data.get("weekly", 0) + amount
         new_monthly = user_data.get("monthly", 0) + amount
         old_level = user_data.get("level", 1)
-        # YENİ: Level artık her zaman toplam XP'den YENİDEN hesaplanıyor (get_level_from_total_xp).
-        # Böylece formül ileride tekrar değişirse veya eski/bozuk bir level değeri DB'de kalmışsa,
-        # bir sonraki XP kazanımında otomatik olarak doğru seviyeye kendiliğinden düzelir.
         new_level = get_level_from_total_xp(new_total)
         await xp_collection.update_one(
             {"_id": user_id},
@@ -538,7 +480,6 @@ class RolesView(View):
 async def half_hourly_reminder():
     await bot.wait_until_ready()
     global REMINDER_CHANNEL_ID, last_activity_time
-    # BUG FIX / YENİ: Sohbette uzun süredir kimse mesaj atmadıysa hatırlatmayı gönderme.
     if time.time() - last_activity_time > REMINDER_INACTIVITY_THRESHOLD_SECONDS:
         return
     channel = bot.get_channel(REMINDER_CHANNEL_ID)
@@ -574,7 +515,6 @@ async def daily_tech_news():
         if entry.link == LAST_NEWS_URL:
             return
         LAST_NEWS_URL = entry.link
-        # BUG FIX: RSS özetindeki HTML etiketleri artık temizleniyor, embed daha temiz görünüyor.
         clean_summary = strip_html_tags(entry.summary) if hasattr(entry, "summary") else ""
         embed = discord.Embed(
             title=f"📰 {entry.title}", 
@@ -615,7 +555,6 @@ async def sunday_xp_event():
         )
         ACTIVE_EVENT_CHANNEL_ID = event_channel.id
         event_duration_seconds = 3 * 60 * 60
-        # YENİ: Etkinlik durumu Mongo'ya kaydediliyor; bot yeniden başlarsa etkinlik kaybolmuyor.
         await save_event_state(event_channel.id, time.time() + event_duration_seconds)
         await event_channel.send(
             "🚨 **THE RIFT HAS OPENED! TRIPLE XP IS NOW ACTIVE!** 🚨\n\n"
@@ -646,12 +585,9 @@ async def on_ready():
     print('==========================================')
     global last_activity_time, ACTIVE_EVENT_CHANNEL_ID
     last_activity_time = time.time()
-    # BUG FIX: MongoDB bağlantısı artık başlangıçta test ediliyor, hata sessizce yutulmuyor.
     try:
         await mongo_client.admin.command('ping')
         print('✅ MongoDB Connection: Successfully established and verified.')
-        # YENİ: Bağlantı koleksiyon bazında da doğrulanıyor; 'warninglerimi göremiyorum' gibi
-        # sorunları başlangıçta terminalde açıkça görebilmek için.
         try:
             xp_count = await xp_collection.count_documents({})
             warn_count = await warnings_collection.count_documents({})
@@ -662,7 +598,6 @@ async def on_ready():
     except Exception as e:
         print('❌ MongoDB Connection Error: Database is NOT reachable! XP, warnings and configs will fail to save.')
         print(f'   Details: {e}')
-    # YENİ: Slash (/) komutlarının Discord'a kayıt edilmesi (sync). Bu olmadan / komutları görünmez.
     try:
         synced = await bot.tree.sync()
         print(f'✅ Slash Commands: {len(synced)} command(s) synced globally. (May take up to 1 hour to appear everywhere the first time.)')
@@ -674,7 +609,6 @@ async def on_ready():
     daily_tech_news.start()
     sunday_xp_event.start() 
     bot.add_view(RolesView())
-    # YENİ: Bot yeniden başladıysa devam eden bir 3x XP etkinliği var mı diye kontrol ediyoruz.
     try:
         state = await load_event_state()
         if state and state.get("active_channel_id"):
@@ -768,7 +702,6 @@ async def apply_warning(member, reason, guild):
     except Exception as e:
         print(f"Warning DB error (falling back to memory): {e}")
     if total_warns is None:
-        # BUG FIX: Veritabanına ulaşılamazsa uyarı sistemi tamamen çökmesin diye hafızada devam ediyoruz.
         if member.id not in warning_db:
             warning_db[member.id] = 0
         warning_db[member.id] += 1
@@ -800,7 +733,7 @@ async def on_message(message):
     if message.author == bot.user or message.author.bot:
         return
     global last_activity_time
-    last_activity_time = time.time()  # YENİ: Her insan mesajında aktivite zamanı güncelleniyor
+    last_activity_time = time.time()
     is_mod = message.author.guild_permissions.manage_messages
     if not is_mod:
         if message.channel.id != ACTIVE_EVENT_CHANNEL_ID:
@@ -835,8 +768,6 @@ async def on_message(message):
             gained = random.randint(5, 30) 
             if message.channel.id == ACTIVE_EVENT_CHANNEL_ID:
                 gained *= 3
-            # BUG FIX: Tek bir XP kazanımında birden fazla seviye atlanabilir (özellikle 3x etkinlikte),
-            # bu yüzden atlanan TÜM seviyeler işleniyor, sadece sonuncusu değil.
             levels_gained = await add_xp(author_id, gained)
             for new_level in levels_gained:
                 level_channel = bot.get_channel(LEVEL_LOG_CHANNEL_ID)
@@ -868,30 +799,16 @@ async def on_message(message):
     except Exception as e:
         print(f"XP Processing Error: {e}")
 
-    # YENİ: AKILLI KISALTMA SİSTEMİ. Kullanıcı tam bir komut ya da tanımlı bir alias yazmadıysa
-    # (ör. "?ldrst"), bot yazılan kısaltmanın hangi komuta ait olabileceğini tahmin etmeye çalışır.
-    # Tek bir eşleşme varsa otomatik çalıştırır; birden fazla varsa seçenekleri gösterir.
-    # Zaten geçerli olan tam komutlara/alias'lara HİÇBİR ŞEKİLDE dokunmaz, normal akışta devam ederler.
     handled_by_shortcut = await try_smart_command_match(message)
     if handled_by_shortcut:
         return
     await bot.process_commands(message)
 
 def _is_subsequence(typed, full):
-    """'ldrst' gibi bir kısaltmanın 'leaderstats' içinde SIRALI olarak geçip geçmediğini kontrol eder."""
     it = iter(full)
     return all(ch in it for ch in typed)
 
 async def try_smart_command_match(message):
-    """
-    Mesaj bilinen bir prefix ile başlıyor ama yazılan kelime ne bir komut adı ne de tanımlı bir
-    alias ise, bu fonksiyon devreye girer:
-      1) Yazılan kısaltmayla BAŞLAYAN komut/alias'ları arar (ör. "lead" -> "leaderstats").
-      2) Hiç bulamazsa, yazılan harflerin komut adının içinde SIRAYLA geçtiği (subsequence)
-         komutları arar (ör. "ldrst" -> "leaderstats").
-    Sonuç TEK bir komutsa otomatik çalıştırılır. Birden fazla aday varsa kullanıcıya seçenekler
-    gösterilir. Hiç aday yoksa dokunulmaz (mevcut sessiz CommandNotFound davranışı korunur).
-    """
     prefix = "?"
     if message.author.bot or not message.content.startswith(prefix):
         return False
@@ -901,11 +818,10 @@ async def try_smart_command_match(message):
     parts = body.split(maxsplit=1)
     typed_cmd = parts[0].lower()
     rest = parts[1] if len(parts) > 1 else ""
-    # Zaten gerçek bir komut/alias ise akıllı sisteme hiç gerek yok, normal akış devam etsin.
     if bot.get_command(typed_cmd) is not None:
         return False
     if len(typed_cmd) < 2:
-        return False  # tek harfli yanlış pozitifleri önlemek için (ör. sadece "?")
+        return False
 
     startswith_matches = []
     subsequence_matches = []
@@ -936,7 +852,7 @@ async def try_smart_command_match(message):
         return True
     return False
 
-@bot.hybrid_command(name="starteventonsunday", aliases=["startevent"], description="3x XP etkinliğini manuel olarak başlatır (admin).")
+@bot.hybrid_command(name="starteventonsunday", aliases=["startevent"], description="Manually starts the 3x XP event (admin).")
 @commands.has_permissions(administrator=True)
 async def starteventonsunday(ctx):
     if ctx.channel.id != 1522172546714308648:
@@ -962,7 +878,7 @@ async def starteventonsunday(ctx):
     )
     await ctx.send(epic_msg)
 
-@bot.hybrid_command(name="setnewschannel", aliases=["snc"], description="Teknoloji haberlerinin gönderileceği kanalı ayarlar (admin).")
+@bot.hybrid_command(name="setnewschannel", aliases=["snc"], description="Sets the channel for tech news broadcasting (admin).")
 @commands.has_permissions(administrator=True)
 async def setnewschannel(ctx, channel: discord.TextChannel = None):
     target_channel = channel or ctx.channel
@@ -975,7 +891,7 @@ async def setnewschannel(ctx, channel: discord.TextChannel = None):
     embed = discord.Embed(title="✅ News Channel Set", description=f"{target_channel.mention} is now the official Tech News broadcast channel.", color=discord.Color.blue())
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="setjoinchannel", aliases=["sjc"], description="Karşılama banner'larının gönderileceği kanalı ayarlar (admin).")
+@bot.hybrid_command(name="setjoinchannel", aliases=["sjc"], description="Sets the channel for welcome banners (admin).")
 @commands.has_permissions(administrator=True)
 async def setjoinchannel(ctx, channel: discord.TextChannel = None):
     target_channel = channel or ctx.channel
@@ -986,7 +902,7 @@ async def setjoinchannel(ctx, channel: discord.TextChannel = None):
     )
     await ctx.send(f"✅ Users will now be greeted with visual terminal banners in {target_channel.mention}.")
 
-@bot.hybrid_command(name="messagesendadminpingu", aliases=["setreminder", "sr"], description="Otomatik kural hatırlatmalarının gönderileceği kanalı ayarlar (admin).")
+@bot.hybrid_command(name="messagesendadminpingu", aliases=["setreminder", "sr"], description="Sets the channel for automatic rule reminders (admin).")
 @commands.has_permissions(administrator=True)
 async def messagesendadminpingu(ctx, channel: discord.TextChannel = None):
     global REMINDER_CHANNEL_ID
@@ -994,7 +910,7 @@ async def messagesendadminpingu(ctx, channel: discord.TextChannel = None):
     REMINDER_CHANNEL_ID = target_channel.id
     await ctx.send(f"✅ The automated rules reminder will now be sent to {target_channel.mention} (only when the chat has been active recently).")
 
-@bot.hybrid_command(name="clear", aliases=["purge", "c"], description="Bu kanaldaki tüm mesajları onay alarak siler (mod).")
+@bot.hybrid_command(name="clear", aliases=["purge", "c"], description="Deletes all messages in this channel with confirmation (mod).")
 @commands.has_permissions(manage_messages=True)
 async def clear(ctx):
     def check(m):
@@ -1017,7 +933,7 @@ async def clear(ctx):
     except Exception as e:
         await ctx.send(f"❌ Error during purge: {e}")
 
-@bot.hybrid_command(name="roles", aliases=["osroles", "distro"], description="OS/GPU rol seçim menüsünü açar (admin).")
+@bot.hybrid_command(name="roles", aliases=["osroles", "distro"], description="Opens the OS/GPU role selection menu (admin).")
 @commands.has_permissions(administrator=True)
 async def roles(ctx):
     role_embed = discord.Embed(
@@ -1027,7 +943,7 @@ async def roles(ctx):
     )
     await ctx.send(embed=role_embed, view=RolesView())
 
-@bot.hybrid_command(name="sudolock", aliases=["lock"], description="Bu kanalı kilitler (mod).")
+@bot.hybrid_command(name="sudolock", aliases=["lock"], description="Locks this channel (mod).")
 @commands.has_permissions(manage_channels=True)
 async def sudolock(ctx):
     await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=False)
@@ -1038,7 +954,7 @@ async def sudolock(ctx):
     )
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="sudounlock", aliases=["unlock"], description="Bu kanalın kilidini açar (mod).")
+@bot.hybrid_command(name="sudounlock", aliases=["unlock"], description="Unlocks this channel (mod).")
 @commands.has_permissions(manage_channels=True)
 async def sudounlock(ctx):
     await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=None)
@@ -1049,7 +965,7 @@ async def sudounlock(ctx):
     )
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="mute", aliases=["m", "timeout"], description="Bir kullanıcıyı susturur (mod).")
+@bot.hybrid_command(name="mute", aliases=["m", "timeout"], description="Mutes a user (mod).")
 @commands.has_permissions(moderate_members=True)
 async def mute(ctx, member: discord.Member, hours: int = 1, *, reason="No reason specified"):
     duration = datetime.timedelta(hours=hours)
@@ -1063,7 +979,7 @@ async def mute(ctx, member: discord.Member, hours: int = 1, *, reason="No reason
     except Exception as e:
         await ctx.send(f"❌ Failed to mute user: {e}")
 
-@bot.hybrid_command(name="unmute", aliases=["um"], description="Bir kullanıcının susturmasını kaldırır (mod).")
+@bot.hybrid_command(name="unmute", aliases=["um"], description="Unmutes a user (mod).")
 @commands.has_permissions(moderate_members=True)
 async def unmute(ctx, member: discord.Member):
     try:
@@ -1072,16 +988,15 @@ async def unmute(ctx, member: discord.Member):
     except Exception as e:
         await ctx.send(f"❌ Failed to unmute user: {e}")
 
-@bot.hybrid_command(name="warning", aliases=["warn"], description="Bir kullanıcıya uyarı verir (mod).")
+@bot.hybrid_command(name="warning", aliases=["warn"], description="Issues a warning to a user (mod).")
 @commands.has_permissions(kick_members=True)
 async def warning(ctx, member: discord.Member, *, reason="Manual Warning"):
     await apply_warning(member, reason, ctx.guild)
     await ctx.send(f"✅ Warning applied to {member.mention}.")
 
-@bot.hybrid_command(name="warnings", aliases=["warns", "w"], description="Bir kullanıcının uyarı geçmişini gösterir (mod).")
+@bot.hybrid_command(name="warnings", aliases=["warns", "w"], description="Shows a user's warning history (mod).")
 @commands.has_permissions(kick_members=True)
 async def warnings(ctx, member: discord.Member):
-    """YENİ KOMUT: Bir kullanıcının Mongo'da kayıtlı uyarı geçmişini gösterir."""
     if ctx.interaction:
         await ctx.defer()
     try:
@@ -1101,10 +1016,9 @@ async def warnings(ctx, member: discord.Member):
         embed.add_field(name="Recent History", value="No warnings recorded.", inline=False)
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="clearwarnings", aliases=["cw", "clwarns"], description="Bir kullanıcının tüm uyarılarını sıfırlar (admin).")
+@bot.hybrid_command(name="clearwarnings", aliases=["cw", "clwarns"], description="Clears all warnings for a user (admin).")
 @commands.has_permissions(administrator=True)
 async def clearwarnings(ctx, member: discord.Member):
-    """YENİ KOMUT: Bir kullanıcının tüm uyarılarını sıfırlar (hem Mongo hem de yedek hafıza)."""
     try:
         await warnings_collection.update_one({"_id": member.id}, {"$set": {"count": 0, "history": []}}, upsert=True)
         warning_db[member.id] = 0
@@ -1112,13 +1026,9 @@ async def clearwarnings(ctx, member: discord.Member):
     except Exception as e:
         await ctx.send(f"❌ Database error: {e}")
 
-@bot.hybrid_command(name="fixlevels", aliases=["recalclevels", "syncxp"], description="XP formülü güncellendiğinde herkesin level'ini toplam XP'sine göre yeniden hesaplar.")
+@bot.hybrid_command(name="fixlevels", aliases=["recalclevels", "syncxp"], description="Recalculates everyone's level based on total XP.")
 @commands.has_permissions(administrator=True)
 async def fixlevels(ctx):
-    """YENİ KOMUT: XP formülü değiştiği için herkesin level alanını total XP'ye göre yeniden hesaplar.
-    Bu komut çalıştırılmadan önce eski/bozuk formülle şişmiş level'ler DB'de yanlış duracaktır;
-    ilk mesajları geldiğinde add_xp zaten otomatik düzeltir ama sohbet etmeyen üyeler için
-    bu komutla tek seferde toplu düzeltme yapılabilir."""
     await ctx.defer() if ctx.interaction else None
     try:
         all_users = await xp_collection.find({}).to_list(length=None)
@@ -1139,12 +1049,9 @@ async def fixlevels(ctx):
     )
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="dbstatus", aliases=["dbcheck", "mongostatus"], description="MongoDB bağlantısını ve koleksiyon sayaçlarını gösterir (uyarılar dahil).")
+@bot.hybrid_command(name="dbstatus", aliases=["dbcheck", "mongostatus"], description="Shows MongoDB connection and collection stats.")
 @commands.has_permissions(administrator=True)
 async def dbstatus(ctx):
-    """YENİ KOMUT: Mongo bağlantısı canlı mı, ve users_xp / server_config / user_warnings
-    koleksiyonlarında kaç kayıt var, tek bakışta gösterir. Özellikle 'warninglerimi Mongo'da
-    göremiyorum' gibi durumları teşhis etmek için eklendi."""
     embed = discord.Embed(title="🗄️ Database Diagnostics", color=discord.Color.blue())
     try:
         await mongo_client.admin.command('ping')
@@ -1172,13 +1079,13 @@ async def dbstatus(ctx):
         embed.add_field(name="Collection Error", value=f"`{e}`", inline=False)
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="ban", aliases=["b"], description="Bir kullanıcıyı sunucudan yasaklar.")
+@bot.hybrid_command(name="ban", aliases=["b"], description="Bans a user from the server.")
 @commands.has_permissions(ban_members=True)
 async def ban(ctx, member: discord.Member, *, reason="No reason provided"):
     await member.ban(reason=reason)
     await ctx.send(f"🔨 {member.name} has been banned. Reason: `{reason}`")
 
-@bot.hybrid_command(name="unban", aliases=["ub"], description="Bir kullanıcının banını kaldırır (mod).")
+@bot.hybrid_command(name="unban", aliases=["ub"], description="Unbans a user (mod).")
 @commands.has_permissions(ban_members=True)
 async def unban(ctx, user_id: int):
     try:
@@ -1188,7 +1095,7 @@ async def unban(ctx, user_id: int):
     except Exception as e:
         await ctx.send(f"❌ Failed to unban: {e}")
 
-@bot.hybrid_command(name="stats", aliases=["st", "profile", "rank", "lvl"], description="Bir kullanıcının level ve XP bilgisini gösterir.")
+@bot.hybrid_command(name="stats", aliases=["st", "profile", "rank", "lvl"], description="Shows a user's level and XP info.")
 async def stats(ctx, member: discord.Member = None):
     if ctx.interaction:
         await ctx.defer()
@@ -1200,8 +1107,6 @@ async def stats(ctx, member: discord.Member = None):
     if not user_data:
         user_data = {"total": 0, "level": 1}
     current_xp = user_data["total"]
-    # YENİ: level formülü değişmiş olabileceğinden, gösterilen level her zaman total XP'den
-    # canlı olarak hesaplanır. Böylece DB'deki eski/bozuk level alanı asla yanlış gösterim yapmaz.
     current_level = get_level_from_total_xp(current_xp)
     prev_level_xp = get_xp_requirement(current_level)
     next_level_xp = get_xp_requirement(current_level + 1)
@@ -1222,7 +1127,7 @@ async def stats(ctx, member: discord.Member = None):
     embed.add_field(name="Progress", value=f"`[{progress_bar}] {int(percentage * 100)}%`", inline=False)
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="leaderstats", aliases=["ls", "lstats", "top", "ldrst", "leaders"], description="Sunucudaki en aktif 15 kullanıcıyı gösterir.")
+@bot.hybrid_command(name="leaderstats", aliases=["ls", "lstats", "top", "ldrst", "leaders"], description="Shows the top 15 most active users.")
 async def leaderstats(ctx):
     if ctx.interaction:
         await ctx.defer()
@@ -1242,7 +1147,7 @@ async def leaderstats(ctx):
     except Exception as e:
         await ctx.send(f"❌ Error fetching leaderboard: {e}")
 
-@bot.hybrid_command(name="randomlinux", aliases=["rl", "linuxtip"], description="Rastgele bir Linux komutu ve açıklamasını gösterir.")
+@bot.hybrid_command(name="randomlinux", aliases=["rl", "linuxtip"], description="Shows a random Linux command and its description.")
 async def randomlinux(ctx):
     selected = random.choice(LINUX_COMMANDS)
     embed = discord.Embed(
@@ -1252,7 +1157,7 @@ async def randomlinux(ctx):
     )
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="whoami", aliases=["wa"], description="Kendi kullanıcı bilgilerini terminal tarzında gösterir.")
+@bot.hybrid_command(name="whoami", aliases=["wa"], description="Shows your user info in a terminal style.")
 async def whoami(ctx):
     roles_list = [r.name for r in ctx.author.roles if r.name != "@everyone"]
     roles_str = ", ".join(roles_list) if roles_list else "No assigned roles."
@@ -1262,7 +1167,7 @@ async def whoami(ctx):
     embed.add_field(name="Active Roles", value=f"```text\n{roles_str}```", inline=False)
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="weather", aliases=["wx"], description="Belirtilen şehir için anlık hava durumunu gösterir.")
+@bot.hybrid_command(name="weather", aliases=["wx"], description="Shows current weather for a specified city.")
 async def weather(ctx, *, city: str = ""):
     if ctx.interaction:
         await ctx.defer()
@@ -1277,35 +1182,35 @@ async def weather(ctx, *, city: str = ""):
             else:
                 await ctx.send("❌ Could not fetch the weather data right now.")
 
-@bot.hybrid_command(name="tankfact", aliases=["tank", "tf"], description="Rastgele bir tank gerçeği gösterir.")
+@bot.hybrid_command(name="tankfact", aliases=["tank", "tf"], description="Shows a random tank fact.")
 async def tankfact(ctx):
     fact = random.choice(TANK_FACTS)
     embed = discord.Embed(title="🪖 Random Tank Fact", description=fact, color=discord.Color.dark_gray())
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="mmafact", aliases=["mma", "mf"], description="Rastgele bir MMA gerçeği gösterir.")
+@bot.hybrid_command(name="mmafact", aliases=["mma", "mf"], description="Shows a random MMA fact.")
 async def mmafact(ctx):
     fact = random.choice(MMA_FACTS)
     embed = discord.Embed(title="🥊 Random MMA Fact", description=fact, color=discord.Color.red())
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="pythontip", aliases=["pytip", "ptip"], description="Rastgele bir Python ipucu gösterir.")
+@bot.hybrid_command(name="pythontip", aliases=["pytip", "ptip"], description="Shows a random Python tip.")
 async def pythontip(ctx):
     tip = random.choice(PYTHON_TIPS)
     embed = discord.Embed(title="🐍 Python Tip", description=tip, color=discord.Color.gold())
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="tea", aliases=["brew"], description="Birine (ya da kendine) bir bardak çay ikram eder.")
+@bot.hybrid_command(name="tea", aliases=["brew"], description="Serves a cup of tea.")
 async def tea(ctx, member: discord.Member = None):
     member = member or ctx.author
     await ctx.send(f"☕ Hey {member.mention}, here is a freshly brewed cup of hot tea for you. Enjoy!")
 
-@bot.hybrid_command(name="ping", aliases=["latency", "pg"], description="Botun gecikmesini (latency) gösterir.")
+@bot.hybrid_command(name="ping", aliases=["latency", "pg"], description="Shows bot latency.")
 async def ping(ctx):
     latency = round(bot.latency * 1000)
     await ctx.send(f"🏓 Pong! Latency is `{latency}ms`.")
 
-@bot.hybrid_command(name="serverinfo", aliases=["sinfo", "si"], description="Sunucu hakkında genel bilgi gösterir.")
+@bot.hybrid_command(name="serverinfo", aliases=["sinfo", "si"], description="Shows server information.")
 async def serverinfo(ctx):
     guild = ctx.guild
     embed = discord.Embed(title=f"🏰 {guild.name} Server Info", color=discord.Color.blue())
@@ -1314,25 +1219,25 @@ async def serverinfo(ctx):
     embed.add_field(name="Created On", value=f"`{guild.created_at.strftime('%Y-%m-%d')}`", inline=True)
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="avatar", aliases=["av", "pfp"], description="Bir kullanıcının profil fotoğrafını büyük boy gösterir.")
+@bot.hybrid_command(name="avatar", aliases=["av", "pfp"], description="Shows a user's avatar.")
 async def avatar(ctx, member: discord.Member = None):
     member = member or ctx.author
     embed = discord.Embed(title=f"🖼️ {member.name}'s Avatar", color=discord.Color.dark_magenta())
     embed.set_image(url=member.display_avatar.url)
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="coinflip", aliases=["cf", "flip"], description="Yazı tura atar.")
+@bot.hybrid_command(name="coinflip", aliases=["cf", "flip"], description="Flips a coin.")
 async def coinflip(ctx):
     choices = ["Heads", "Tails"]
     await ctx.send(f"🪙 The coin landed on: **{random.choice(choices)}**")
 
-@bot.hybrid_command(name="diceroll", aliases=["dice", "roll"], description="Zar atar (varsayılan 6 yüzlü).")
+@bot.hybrid_command(name="diceroll", aliases=["dice", "roll"], description="Rolls a dice.")
 async def diceroll(ctx, sides: int = 6):
     if sides < 2:
         return await ctx.send("❌ A dice must have at least 2 sides!")
     await ctx.send(f"🎲 You rolled a `{sides}`-sided dice and got: **{random.randint(1, sides)}**")
 
-@bot.hybrid_command(name="8ball", aliases=["eightball", "magicball"], description="Sihirli 8 topa bir soru sor.")
+@bot.hybrid_command(name="8ball", aliases=["eightball", "magicball"], description="Ask the magic 8-ball.")
 async def magic_ball(ctx, *, question: str):
     responses = [
         "It is certain.", "Without a doubt.", "Yes, definitely.", 
@@ -1341,20 +1246,18 @@ async def magic_ball(ctx, *, question: str):
     ]
     await ctx.send(f"🎱 **Question:** {question}\n**Answer:** {random.choice(responses)}")
 
-@bot.hybrid_command(name="joke", aliases=["j"], description="Rastgele bir tech şakası anlatır.")
+@bot.hybrid_command(name="joke", aliases=["j"], description="Tells a random tech joke.")
 async def joke(ctx):
     await ctx.send(f"😂 {random.choice(TECH_JOKES)}")
 
-@bot.hybrid_command(name="gif", aliases=["g"], description="Rastgele bir Linux gif'i gösterir.")
+@bot.hybrid_command(name="gif", aliases=["g"], description="Shows a random Linux gif.")
 async def gif(ctx):
     embed = discord.Embed(title="🐧 Random Linux Graphic", color=discord.Color.green())
     embed.set_image(url=random.choice(LINUX_GIFS))
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="neofetch", aliases=["nf", "sysinfo"], description="Sunucuyu 'neofetch' tarzında bir sistem bilgisi kartı olarak gösterir.")
+@bot.hybrid_command(name="neofetch", aliases=["nf", "sysinfo"], description="Shows server stats in a neofetch style.")
 async def neofetch(ctx):
-    """YENİ ÖZELLİK: Linux/sistem hobisi temalı sunucu için, gerçek 'neofetch' çıktısını taklit
-    eden, sunucunun kendi istatistiklerini gösteren eğlenceli bir kart."""
     guild = ctx.guild
     uptime_seconds = int(time.time() - BOT_START_TIME)
     days, rem = divmod(uptime_seconds, 86400)
@@ -1362,28 +1265,189 @@ async def neofetch(ctx):
     minutes, _ = divmod(rem, 60)
     text_channels = len(guild.text_channels)
     voice_channels = len(guild.voice_channels)
-    penguin = (
-        "```ansi\n"
-        "        .88888888:.                guest@" + guild.name[:12] + "\n"
-        "       88888888.88888.             ---------------------\n"
-        "     .8888888888888888.            OS: DiscordOS (AdminPingu Edition)\n"
-        "     888888888888888888             Host: " + guild.name[:24] + "\n"
-        "     88' _`88'_  `88888              Uptime: " + f"{days}d {hours}h {minutes}m" + "\n"
-        "     88 88 88 88  88888              Members: " + f"{guild.member_count}" + "\n"
-        "     88_88_::_88_:88888              Channels: " + f"{text_channels} text, {voice_channels} voice" + "\n"
-        "     88:::,::,:::::8888              Roles: " + f"{len(guild.roles)}" + "\n"
-        "     88`:::::::::'8888               Shell: adminpingu-bot ?/slash\n"
-        "    .88  `::::'    8:88.             Prefix: ? (or use / anywhere)\n"
-        "   8888            `8:888.\n"
-        "  .8888'             `888888.\n"
-        " .8888:..  .::.  ...:'8888888:.\n"
-        "```"
-    )
-    await ctx.send(penguin)
 
-@bot.hybrid_command(name="cowsay", aliases=["cow"], description="Klasik Linux 'cowsay' komutunu simüle eder.")
+    user_role_ids = [r.id for r in ctx.author.roles]
+
+    TUX_ASCII = [
+        r"        .88888888:.       ",
+        r"       88888888.88888.    ",
+        r"     .8888888888888888.   ",
+        r"     888888888888888888   ",
+        r"     88' _`88'_  `88888   ",
+        r"     88 88 88 88  88888   ",
+        r"     88_88_::_88_:88888   ",
+        r"     88:::,::,:::::8888   ",
+        r"     88`:::::::::'8888    ",
+        r"    .88  `::::'    8:88.  ",
+        r"   8888            `8:888.",
+        r"  .8888'             `8888",
+        r" .8888:..  .::.  ...:'8888"
+    ]
+    ARCH_ASCII = [
+        r"                   -`     ",
+        r"                  .o+`    ",
+        r"                 `ooo/    ",
+        r"                `+oooo:   ",
+        r"               `+oooooo:  ",
+        r"               -+oooooo+: ",
+        r"             `/:-:++oooo+:",
+        r"            `/++++/+++++++:",
+        r"           `/++++++++++++++:",
+        r"          `/+++ooooooooooooo/`",
+        r"         ./ooosssso++osssssso+`",
+        r"        .oossssso-````/ossssss+`",
+        r"       -osssssso.      :ssssssso."
+    ]
+    UBUNTU_ASCII = [
+        r"                          ",
+        r"            ---           ",
+        r"         -       -        ",
+        r"        /         \       ",
+        r"       |           |      ",
+        r"       |           |      ",
+        r"        \         /       ",
+        r"         -       -        ",
+        r"            ---           ",
+        r"                          ",
+        r"                          ",
+        r"                          ",
+        r"                          "
+    ]
+    WINDOWS_ASCII = [
+        r"                          ",
+        r"        _.-;;-._          ",
+        r" '-..-'|   ||   |         ",
+        r" '-..-'|_.-;;-._|         ",
+        r" '-..-'|   ||   |         ",
+        r" '-..-'|_.-''-._|         ",
+        r"                          ",
+        r"                          ",
+        r"                          ",
+        r"                          ",
+        r"                          ",
+        r"                          ",
+        r"                          "
+    ]
+    BSD_ASCII = [
+        r"           ,        ,     ",
+        r"          /(        )`    ",
+        r"          \ \___   / |    ",
+        r"          /- _  `-/  '    ",
+        r"         (/\/ \ \   /\    ",
+        r"         / /   | `    \   ",
+        r"         O O   ) /    |   ",
+        r"         `-^--'`<     '   ",
+        r"        (_.)  _  )   /    ",
+        r"         `.___/`    /     ",
+        r"                          ",
+        r"                          ",
+        r"                          "
+    ]
+
+    distro_role_mapping = {
+        1521868543799328808: ("Arch Linux", ARCH_ASCII),
+        1521870392472502344: ("Manjaro", ARCH_ASCII),
+        1521870674669338654: ("EndeavourOS", ARCH_ASCII),
+        1521871074994950295: ("Garuda Linux", ARCH_ASCII),
+        1521871078308184074: ("Artix Linux", ARCH_ASCII),
+        1522137195102867526: ("Black Arch", ARCH_ASCII),
+        1522143963904081920: ("CachyOS", ARCH_ASCII),
+        1521870173861056655: ("Debian", UBUNTU_ASCII),
+        1521870110552227910: ("Ubuntu", UBUNTU_ASCII),
+        1521868791942742026: ("Linux Mint", UBUNTU_ASCII),
+        1521871399403393044: ("Kali Linux", UBUNTU_ASCII),
+        1521871613958819860: ("Pop!_OS", UBUNTU_ASCII),
+        1521871816321404969: ("Zorin OS", UBUNTU_ASCII),
+        1521871679368986655: ("MX Linux", UBUNTU_ASCII),
+        1521871896117776468: ("Deepin", UBUNTU_ASCII),
+        1521872016901406720: ("Elementary OS", UBUNTU_ASCII),
+        1522137253856415784: ("Parrot OS", UBUNTU_ASCII),
+        1521870225228955798: ("Gentoo", TUX_ASCII),
+        1521872173688422420: ("Nobara", TUX_ASCII),
+        1521872360393670819: ("Fedora", TUX_ASCII),
+        1521872534117679206: ("Red Star OS", TUX_ASCII),
+        1521872635968098344: ("Void Linux", TUX_ASCII),
+        1521872683803873432: ("NixOS", TUX_ASCII),
+        1521872759691542588: ("Alpine Linux", TUX_ASCII),
+        1521873026776301608: ("openSUSE", TUX_ASCII),
+        1521873129868365964: ("Slackware", TUX_ASCII)
+    }
+
+    win_role_mapping = {
+        1521909235594825941: "Windows 11",
+        1521909403496742973: "Windows 10",
+        1521909451739893982: "Windows 8",
+        1521909341802725427: "Windows 7",
+        1522212167393214514: "Windows Vista",
+        1522212092663300248: "Windows XP"
+    }
+
+    bsd_role_mapping = {
+        1521909235594825999: "FreeBSD",
+        1522211951709519872: "GhostBSD",
+        1522211033073324234: "OpenBSD",
+        1522211796532854826: "DragonFly BSD",
+        1522211599744499834: "NetBSD"
+    }
+
+    selected_linux = None
+    selected_win = None
+    selected_bsd = None
+
+    for r_id in user_role_ids:
+        if r_id in distro_role_mapping:
+            selected_linux = distro_role_mapping[r_id]
+        if r_id in win_role_mapping:
+            selected_win = win_role_mapping[r_id]
+        if r_id in bsd_role_mapping:
+            selected_bsd = bsd_role_mapping[r_id]
+
+    final_os = "DiscordOS"
+    final_ascii = TUX_ASCII
+
+    if selected_linux:
+        final_os = selected_linux[0]
+        final_ascii = selected_linux[1]
+    elif selected_win:
+        final_os = selected_win
+        final_ascii = WINDOWS_ASCII
+    elif selected_bsd:
+        final_os = selected_bsd
+        final_ascii = BSD_ASCII
+
+    gpu_name = "Virtual GPU"
+    if 1521879270530486414 in user_role_ids:
+        gpu_name = "NVIDIA Corporation"
+    elif 1521879224951246928 in user_role_ids:
+        gpu_name = "AMD/Advanced Micro Devices"
+    elif 1521879315648614410 in user_role_ids:
+        gpu_name = "Intel Corporation"
+
+    stats_lines = [
+        f"{ctx.author.name}@{guild.name[:12]}",
+        "---------------------",
+        f"OS: {final_os}",
+        f"Host: {guild.name[:24]}",
+        f"Uptime: {days}d {hours}h {minutes}m",
+        f"Members: {guild.member_count}",
+        f"Channels: {text_channels} text, {voice_channels} voice",
+        f"Roles: {len(guild.roles)}",
+        f"Graphics: {gpu_name}",
+        f"Shell: adminpingu-bot ?/slash",
+        f"Prefix: ? (or use / anywhere)"
+    ]
+
+    neofetch_output = "```ansi\n"
+    for i in range(max(len(final_ascii), len(stats_lines))):
+        left = final_ascii[i].ljust(26) if i < len(final_ascii) else " " * 26
+        right = stats_lines[i] if i < len(stats_lines) else ""
+        neofetch_output += f"{left}  {right}\n"
+    neofetch_output += "```"
+
+    await ctx.send(neofetch_output)
+
+@bot.hybrid_command(name="cowsay", aliases=["cow"], description="Simulates the classic Linux cowsay command.")
 async def cowsay(ctx, *, text: str = "Moo! AdminPingu is watching."):
-    """YENİ ÖZELLİK: Klasik terminal 'cowsay' aracının bir taklidi."""
     clean_text = text[:100]
     line_len = len(clean_text)
     top = " " + "_" * (line_len + 2)
@@ -1403,9 +1467,8 @@ async def cowsay(ctx, *, text: str = "Moo! AdminPingu is watching."):
     )
     await ctx.send(cow)
 
-@bot.hybrid_command(name="fortune", aliases=["ft"], description="Terminaldeki klasik 'fortune' komutu gibi rastgele bir söz verir.")
+@bot.hybrid_command(name="fortune", aliases=["ft"], description="Simulates the classic fortune command.")
 async def fortune(ctx):
-    """YENİ ÖZELLİK: Unix 'fortune' komutunun taklidi, Linux/tech temalı sözlerle."""
     fortunes = [
         "A computer program does what you tell it to do, not what you want it to do.",
         "There are only two hard things in Computer Science: cache invalidation and naming things.",
@@ -1422,10 +1485,8 @@ async def fortune(ctx):
     ]
     await ctx.send(f"🥠 `{random.choice(fortunes)}`")
 
-@bot.hybrid_command(name="packagemap", aliases=["pkg", "pkgcheat"], description="apt/dnf/pacman/zypper/apk paket yöneticisi komutlarını karşılaştırır.")
+@bot.hybrid_command(name="packagemap", aliases=["pkg", "pkgcheat"], description="Compares package manager commands.")
 async def packagemap(ctx, action: str = "install"):
-    """YENİ ÖZELLİK: Dağıtımlar arası geçiş yapan Linux kullanıcıları için paket yöneticisi
-    komut karşılaştırma tablosu. `?packagemap install` / `remove` / `update` / `search` şeklinde kullanılır."""
     action = action.lower().strip()
     cheatsheet = {
         "install": {
@@ -1464,9 +1525,8 @@ async def packagemap(ctx, action: str = "install"):
     embed = discord.Embed(title=f"📦 Package Manager Cheatsheet — {action}", description=desc, color=discord.Color.blurple())
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="distrobattle", aliases=["db", "distrowar"], description="İki rastgele Linux dağıtımını meme şeklinde karşı karşıya getirir.")
+@bot.hybrid_command(name="distrobattle", aliases=["db", "distrowar"], description="Pits two random Linux distros against each other.")
 async def distrobattle(ctx):
-    """YENİ ÖZELLİK: Sunucunun Linux temasına uygun, iki rastgele dağıtımı 'kapıştıran' bir eğlence komutu."""
     distros = [
         "Arch Linux", "Ubuntu", "Fedora", "Debian", "Gentoo", "NixOS",
         "Void Linux", "Manjaro", "openSUSE", "Alpine Linux", "Slackware", "CachyOS"
@@ -1488,7 +1548,7 @@ async def distrobattle(ctx):
     )
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="uptime", aliases=["up"], description="Botun ne kadar süredir çalıştığını 'htop' tarzında gösterir.")
+@bot.hybrid_command(name="uptime", aliases=["up"], description="Shows how long the bot has been running.")
 async def uptime(ctx):
     uptime_seconds = int(time.time() - BOT_START_TIME)
     days, rem = divmod(uptime_seconds, 86400)
@@ -1500,10 +1560,8 @@ async def uptime(ctx):
     embed.add_field(name="Uptime", value=f"`{days}d {hours}h {minutes}m {seconds}s`", inline=False)
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="shortcuts", aliases=["sc", "aliases"], description="Tüm komut kısaltmalarını listeler.")
+@bot.hybrid_command(name="shortcuts", aliases=["sc", "aliases"], description="Lists all command shortcuts.")
 async def shortcuts(ctx):
-    """YENİ KOMUT: Tüm komutların kısaltmalarını tek bir yerde toplar. Ayrıca bot, tanımadığı bir
-    kısaltma yazıldığında (ör. ?ldrst) otomatik olarak doğru komutu bulmaya çalışır — aşağıya bakın."""
     embed = discord.Embed(
         title="⚡ Command Shortcuts",
         description="Full commands and their short forms. Both `?` prefix and `/` slash work with the full name.\n"
@@ -1545,7 +1603,7 @@ async def shortcuts(ctx):
     )
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="help", aliases=["h", "commands", "cmds"], description="Tüm bot komutlarını listeler.")
+@bot.hybrid_command(name="help", aliases=["h", "commands", "cmds"], description="Lists all bot commands.")
 async def help(ctx):
     embed = discord.Embed(
         title="🐧 AdminPingu Command List", 
