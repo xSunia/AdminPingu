@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands, tasks
-from discord.ui import Select, View
+from discord.ui import Select, View, Modal, TextInput
 from flask import Flask
 from threading import Thread
 import random
@@ -54,7 +54,6 @@ USER_ROLE_ID = 1510547520273649704
 MEDIA_ROLE_ID = 1521875919864856714       
 
 ACTIVE_EVENT_CHANNEL_ID = None
-
 REMINDER_INACTIVITY_THRESHOLD_SECONDS = 3600
 
 LEVEL_ROLES = {
@@ -71,27 +70,27 @@ LINUX_COMMANDS = [
     {"cmd": "ls", "desc": "Used to list directory contents. It's like taking a quick look at everything inside a folder!"},
     {"cmd": "cd", "desc": "Allows you to navigate between directories. It essentially teleports you from one path to another."},
     {"cmd": "pwd", "desc": "Prints the full path of your current working directory."},
-    {"cmd": "sudo", "desc": "Runs a command with the elevated security privileges of the system administrator ('root')."},
+    {"cmd": "sudo", "desc": "Runs a command with the elevated security privileges of the system administrator."},
     {"cmd": "htop", "desc": "A much sleeker, colorful, and interactive modern upgrade to the classic 'top' command!"},
     {"cmd": "mkdir", "desc": "Creates a brand new, empty directory at the specified path."},
-    {"cmd": "rm", "desc": "Removes (deletes) files or directories. Use the -r flag for folders, and always double-check before running it!"},
+    {"cmd": "rm", "desc": "Removes files or directories. Use the -r flag for folders, and always double-check!"},
     {"cmd": "cp", "desc": "Copies files or directories from one location to another, leaving the original intact."},
     {"cmd": "mv", "desc": "Moves or renames files and directories. If the destination is a new name, it acts as a rename."},
     {"cmd": "grep", "desc": "Searches through text using patterns, perfect for finding a specific line inside a huge log file."},
     {"cmd": "chmod", "desc": "Changes the read/write/execute permissions of a file or directory."},
-    {"cmd": "chown", "desc": "Changes the owner (and optionally the group) of a file or directory."},
+    {"cmd": "chown", "desc": "Changes the owner of a file or directory."},
     {"cmd": "ps", "desc": "Displays information about currently running processes on the system."},
     {"cmd": "kill", "desc": "Sends a signal to a running process, most commonly used to terminate it."},
     {"cmd": "df", "desc": "Shows how much disk space is used and available on your mounted filesystems."},
     {"cmd": "du", "desc": "Estimates file and directory space usage, great for finding what's eating your storage."},
     {"cmd": "tar", "desc": "Archives multiple files into a single .tar file, often combined with compression like gzip."},
     {"cmd": "ssh", "desc": "Lets you securely log into and control a remote machine over an encrypted connection."},
-    {"cmd": "curl", "desc": "Transfers data to or from a server, commonly used to test APIs or download files from the terminal."},
-    {"cmd": "man", "desc": "Opens the manual page for a command, giving you the full documentation right in your terminal."},
+    {"cmd": "curl", "desc": "Transfers data to or from a server, commonly used to test APIs or download files."},
+    {"cmd": "man", "desc": "Opens the manual page for a command, giving you the full documentation."},
     {"cmd": "top", "desc": "The classic real-time view of running processes and system resource usage."},
     {"cmd": "history", "desc": "Shows a list of the commands you've previously run in your terminal session."},
     {"cmd": "clear", "desc": "Wipes your terminal screen clean, giving you a fresh, empty prompt."},
-    {"cmd": "systemctl", "desc": "Used to control and inspect systemd services, like starting, stopping, or checking a background daemon."},
+    {"cmd": "systemctl", "desc": "Used to control and inspect systemd services, like starting or checking a background daemon."},
     {"cmd": "journalctl", "desc": "Lets you view and filter logs collected by the systemd journal."}
 ]
 
@@ -162,8 +161,8 @@ PYTHON_TIPS = [
     "The `zip()` function lets you loop over multiple lists in parallel: `for a, b in zip(list1, list2):`",
     "Use `collections.Counter` to quickly count how many times each item appears in a list.",
     "Dictionary comprehensions work just like list comprehensions: `{k: v for k, v in items}`",
-    "Use `with open(...) as f:` when working with files so they get closed automatically, even if an error occurs.",
-    "The walrus operator `:=` lets you assign and use a value in the same expression (Python 3.8+).",
+    "Use `with open(...) as f:` when working with files so they get closed automatically.",
+    "The walrus operator `:=` lets you assign and use a value in the same expression.",
     "Use `*args` and `**kwargs` in your function definitions to accept a flexible number of arguments.",
     "Prefer `pathlib.Path` over manual string concatenation when working with file paths."
 ]
@@ -375,6 +374,23 @@ async def add_xp(user_id, amount):
         print(f"Database access error (add_xp): {e}")
         return []
 
+class ColorModal(discord.ui.Modal, title='Personalize Border Color'):
+    color_input = discord.ui.TextInput(
+        label='Hex Color Code',
+        placeholder='#FFFFFF',
+        default='#cba6f7',
+        min_length=4,
+        max_length=7
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await xp_collection.update_one(
+            {"_id": interaction.user.id}, 
+            {"$set": {"customizations.border_color": self.color_input.value}}, 
+            upsert=True
+        )
+        await interaction.response.send_message(f"✅ Border color uniquely set to `{self.color_input.value}`!", ephemeral=True)
+
 class FontSelect(discord.ui.Select):
     def __init__(self):
         options = [
@@ -397,8 +413,12 @@ class FontSelect(discord.ui.Select):
         super().__init__(placeholder="Select a Custom Font", min_values=1, max_values=1, options=options, custom_id="font_select")
 
     async def callback(self, interaction: discord.Interaction):
-        await xp_collection.update_one({"_id": interaction.user.id}, {"$set": {"font": self.values[0]}}, upsert=True)
-        await interaction.response.send_message(f"Your font has been updated to {self.values[0]}!", ephemeral=True)
+        await xp_collection.update_one(
+            {"_id": interaction.user.id}, 
+            {"$set": {"customizations.font": self.values[0]}}, 
+            upsert=True
+        )
+        await interaction.response.send_message(f"✅ Your typography has been upgraded to {self.values[0]}!", ephemeral=True)
 
 class TemplateSelect(discord.ui.Select):
     def __init__(self):
@@ -412,8 +432,12 @@ class TemplateSelect(discord.ui.Select):
         super().__init__(placeholder="Select a Template Schema", min_values=1, max_values=1, options=options, custom_id="template_select")
 
     async def callback(self, interaction: discord.Interaction):
-        await xp_collection.update_one({"_id": interaction.user.id}, {"$set": {"template": self.values[0]}}, upsert=True)
-        await interaction.response.send_message(f"Your template schema has been updated to {self.values[0]}!", ephemeral=True)
+        await xp_collection.update_one(
+            {"_id": interaction.user.id}, 
+            {"$set": {"customizations.template": self.values[0]}}, 
+            upsert=True
+        )
+        await interaction.response.send_message(f"✅ Your interface schema has been upgraded to {self.values[0]}!", ephemeral=True)
 
 class CustomizeView(discord.ui.View):
     def __init__(self):
@@ -421,9 +445,13 @@ class CustomizeView(discord.ui.View):
         self.add_item(FontSelect())
         self.add_item(TemplateSelect())
 
-    @discord.ui.button(label="Finish", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="🎨 Set Custom Hex Color", style=discord.ButtonStyle.primary)
+    async def set_color_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ColorModal())
+
+    @discord.ui.button(label="✅ Save & Finish", style=discord.ButtonStyle.success)
     async def finish_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(content="✅ Customization closed! Use `?stats` to see your new card.", view=None)
+        await interaction.response.edit_message(content="✅ Customization protocol completed. Deploy `?stats` or `/stats` to view your new card.", view=None)
 
 class DistroSelect(Select):
     def __init__(self, placeholder, options, custom_id):
@@ -656,7 +684,7 @@ async def on_ready():
         print(f'   Details: {e}')
     try:
         synced = await bot.tree.sync()
-        print(f'✅ Slash Commands: {len(synced)} command(s) synced globally. (May take up to 1 hour to appear everywhere the first time.)')
+        print(f'✅ Slash Commands: {len(synced)} command(s) synced globally.')
     except Exception as e:
         print(f'❌ Slash Command Sync Error: {e}')
     await bot.change_presence(activity=discord.Game(name="Managing the Server | ?help or /help"))
@@ -773,7 +801,7 @@ async def apply_warning(member, reason, guild):
         warning_doc = await warnings_collection.find_one({"_id": member.id})
         total_warns = warning_doc.get("count", 1) if warning_doc else 1
     except Exception as e:
-        print(f"Warning DB error (falling back to memory): {e}")
+        print(f"Warning DB error: {e}")
     if total_warns is None:
         if member.id not in warning_db:
             warning_db[member.id] = 0
@@ -790,7 +818,7 @@ async def apply_warning(member, reason, guild):
         admins = [m for m in guild.members if m.guild_permissions.administrator and not m.bot]
         for admin in admins:
             try:
-                await admin.send(f"🚨 **Administrator Alert:** The user {member.mention} (`{member.name}`) has reached the **5/5 warning limit** in {guild.name}. They have officially run out of luck! Please review their logs and take manual action.")
+                await admin.send(f"🚨 **Administrator Alert:** The user {member.mention} (`{member.name}`) has reached the **5/5 warning limit** in {guild.name}. Please review their logs and take manual action.")
             except Exception:
                 pass
         if warn_channel:
@@ -1015,8 +1043,8 @@ async def try_smart_command_match(message):
     elif 1 < len(unique_candidates) <= 8:
         options = ", ".join(f"`{prefix}{c.name}`" for c in unique_candidates)
         await message.channel.send(
-            f"❓ I'm not sure which command `{prefix}{typed_cmd}` was meant to be. Did you mean: {options}?\n"
-            f"Tip: use `?shortcuts` to see all the official short forms."
+            f"❓ Did you mean: {options}?\n"
+            f"Tip: use `?shortcuts` or `/shortcuts` to see all the official short forms."
         )
         return True
     return False
@@ -1052,11 +1080,11 @@ async def terminal(ctx):
         title="🐍 Python Sandbox Terminal",
         description=f"Welcome {ctx.author.mention}! This channel is your isolated Python environment.\n\n"
                     f"🔒 **Security Rules:**\n"
-                    f"• Imports, file I/O, and dangerous functions (`eval`, `exec`) are strictly **BLOCKED**.\n"
+                    f"• Imports, file I/O, and dangerous functions are strictly **BLOCKED**.\n"
                     f"• Infinite loops will automatically time out after 3 seconds.\n"
                     f"• You cannot interact with or harm the Discord bot or the server.\n\n"
                     f"💡 **How to use:**\n"
-                    f"Just type your Python code directly into the chat and send it! (Code blocks work too).\n\n"
+                    f"Just type your Python code directly into the chat and send it!\n\n"
                     f"🛑 **To Exit:**\n"
                     f"Type `close()` or `exit()` to delete this channel.",
         color=discord.Color.green()
@@ -1282,9 +1310,7 @@ async def dbstatus(ctx):
         if warn_count == 0:
             embed.add_field(
                 name="ℹ️ Note",
-                value="`user_warnings` is empty. This is expected if no one has been warned yet. "
-                      "If you gave warnings and still see 0, make sure you're viewing the `AdminPinguDB` "
-                      "database (not the default one) in your MongoDB client.",
+                value="`user_warnings` is currently empty.",
                 inline=False
             )
     except Exception as e:
@@ -1307,11 +1333,25 @@ async def unban(ctx, user_id: int):
     except Exception as e:
         await ctx.send(f"❌ Failed to unban: {e}")
 
-@bot.hybrid_command(name="customize", description="Customize your stats card background and font.")
+@bot.hybrid_command(name="customize", description="Customize your dynamic stats card background, color, and font.")
 async def customize(ctx, background_image: discord.Attachment = None):
     if background_image:
-        await xp_collection.update_one({"_id": ctx.author.id}, {"$set": {"bg_image": background_image.url}}, upsert=True)
-    await ctx.send("Welcome to the Card Customizer! Please configure your template schemas and fonts from the menus below. Make sure to click Finish when you are done.", view=CustomizeView(), ephemeral=True)
+        if background_image.content_type in ["image/png", "image/jpeg", "image/webp"]:
+            await xp_collection.update_one(
+                {"_id": ctx.author.id}, 
+                {"$set": {"customizations.bg_image": background_image.url}}, 
+                upsert=True
+            )
+            await ctx.send(f"✅ Your background image has been successfully uploaded and saved!", ephemeral=True)
+        else:
+            return await ctx.send("❌ Invalid file format! Please upload a valid PNG, JPG, or WEBP image.", ephemeral=True)
+    
+    embed = discord.Embed(
+        title="🎨 Dynamic Card Customizer",
+        description="Select your preferred schema and typography from the menus below. Click the primary button to choose your unique RGB hex color for your borders and text highlights.",
+        color=discord.Color.brand_green()
+    )
+    await ctx.send(embed=embed, view=CustomizeView(), ephemeral=True)
 
 @bot.hybrid_command(name="stats", aliases=["st", "profile", "rank", "lvl"], description="Shows a user's customized level and XP card.")
 async def stats(ctx, member: discord.Member = None):
@@ -1333,9 +1373,11 @@ async def stats(ctx, member: discord.Member = None):
     xp_needed_for_level = next_level_xp - prev_level_xp
     percentage = min(max(xp_into_level / xp_needed_for_level, 0.0), 1.0) if xp_needed_for_level > 0 else 1.0
 
-    bg_url = user_data.get("bg_image")
-    template = user_data.get("template", "dark")
-    font_choice = user_data.get("font", "arial")
+    customs = user_data.get("customizations", {})
+    bg_url = customs.get("bg_image")
+    template = customs.get("template", "dark")
+    font_choice = customs.get("font", "arial")
+    custom_border_color = customs.get("border_color", None)
 
     bg_color = "#1e1e2e"
     text_color = "#ffffff"
@@ -1350,6 +1392,9 @@ async def stats(ctx, member: discord.Member = None):
         bg_color, text_color, bar_color, panel_color = "#0f0f0f", "#ffff00", "#ff003c", "#222222"
     elif template == "light":
         bg_color, text_color, bar_color, panel_color = "#ffffff", "#000000", "#0055ff", "#eeeeee"
+
+    if custom_border_color:
+        bar_color = custom_border_color
 
     try:
         if bg_url:
@@ -1369,7 +1414,7 @@ async def stats(ctx, member: discord.Member = None):
         sub_font = Font.poppins(variant="regular", size=30)
         small_font = Font.poppins(variant="light", size=22)
 
-    background.rectangle((20, 20), width=860, height=260, color=panel_color, radius=20, outline=bar_color, stroke_width=3)
+    background.rectangle((20, 20), width=860, height=260, color=panel_color, radius=20, outline=bar_color, stroke_width=4)
 
     try:
         avatar_image = await load_image_async(str(member.display_avatar.url))
@@ -1861,11 +1906,11 @@ async def fortune(ctx):
         "A computer program does what you tell it to do, not what you want it to do.",
         "There are only two hard things in Computer Science: cache invalidation and naming things.",
         "The best way to predict the future is to implement it.",
-        "In Linux, everything is a file — including your patience by 3 AM.",
+        "In Linux, everything is a file including your patience by 3 AM.",
         "Real programmers count from 0.",
         "sudo make me a sandwich.",
         "It's not a bug, it's an undocumented feature.",
-        "Talk is cheap. Show me the code. — Linus Torvalds",
+        "Talk is cheap. Show me the code. Linus Torvalds",
         "Given enough eyeballs, all bugs are shallow.",
         "The Linux philosophy: 'Laugh in the face of danger.' Then hide until it goes away.",
         "One does not simply compile the kernel without coffee.",
@@ -1952,9 +1997,8 @@ async def uptime(ctx):
 async def shortcuts(ctx):
     embed = discord.Embed(
         title="⚡ Command Shortcuts",
-        description="Full commands and their short forms. Both `?` prefix and `/` slash work with the full name.\n"
-                     "**Bonus:** if you type an unrecognized shortcut like `?ldrst`, the bot will try to guess "
-                     "what you meant automatically, as long as it's an unambiguous match.",
+        description="Full commands and their short forms. Both `?` prefix and `/` slash work seamlessly with the full name.\n"
+                     "**Bonus:** The system utilizes smart command matching. Typing a partial prefix like `?st` will instantly execute `stats`.",
         color=discord.Color.teal()
     )
     embed.add_field(
@@ -1968,87 +2012,7 @@ async def shortcuts(ctx):
               "`?ban` → `b` | `?unban` → `ub`",
         inline=False
     )
-    embed.add_field(
-        name="📊 Stats & Utilities",
-        value="`?stats` → `st`, `profile`, `rank`, `lvl`\n"
-              "`?customize` → `cardsetup`\n"
-              "`?leaderstats` → `ls`, `lstats`, `top`, `ldrst`, `leaders`\n"
-              "`?serverinfo` → `sinfo`, `si`\n"
-              "`?help` → `h`, `commands`, `cmds`\n"
-              "`?dbstatus` → `dbcheck`, `mongostatus`\n"
-              "`?fixlevels` → `recalclevels`, `syncxp`",
-        inline=False
-    )
-    embed.add_field(
-        name="🎮 Fun & Random",
-        value="`?weather` → `wx` | `?tankfact` → `tank`, `tf` | `?mmafact` → `mma`, `mf`\n"
-              "`?pythontip` → `pytip`, `ptip` | `?randomlinux` → `rl`, `linuxtip`\n"
-              "`?whoami` → `wa` | `?avatar` → `av`, `pfp` | `?ping` → `latency`, `pg`\n"
-              "`?coinflip` → `cf`, `flip` | `?diceroll` → `dice`, `roll`\n"
-              "`?neofetch` → `nf`, `sysinfo` | `?cowsay` → `cow` | `?fortune` → `ft`\n"
-              "`?packagemap` → `pkg`, `pkgcheat` | `?distrobattle` → `db`, `distrowar`\n"
-              "`?uptime` → `up` | `?gif` → `g` | `?joke` → `j`",
-        inline=False
-    )
     await ctx.send(embed=embed)
-
-@bot.hybrid_command(name="help", aliases=["h", "commands", "cmds"], description="Lists all bot commands.")
-async def help(ctx):
-    embed = discord.Embed(
-        title="🐧 AdminPingu Command List", 
-        description="Every command works with **both** `?prefix` and `/slash`. Use `?shortcuts` to see every alias, "
-                     "and don't worry about typing the full name — a close-enough shortcut usually gets auto-detected too.",
-        color=discord.Color.dark_green()
-    )
-    embed.add_field(
-        name="🛡️ Moderation Commands", 
-        value="`?roles` - Opens the role selection menu\n"
-              "`?sudolock` / `?sudounlock` - Locks/Unlocks a text channel\n"
-              "`?mute <user> [h]` / `?unmute <user>` - Manages timeouts\n"
-              "`?clear` - Mass deletes messages in a channel\n"
-              "`?warning <user> [reason]` - Gives a user a warning\n"
-              "`?warnings <user>` - Shows a user's warning history\n"
-              "`?clearwarnings <user>` - Resets a user's warnings to 0\n"
-              "`?ban <user> [reason]` / `?unban <id>` - Manages bans\n"
-              "`?setnewschannel` - Sets the channel for tech news\n"
-              "`?setjoinchannel` - Sets the channel for welcome banners\n"
-              "`?messagesendadminpingu` - Sets the channel for the automated rules reminder\n"
-              "`?fixlevels` - Recalculates everyone's level against the current XP curve\n"
-              "`?dbstatus` - Checks MongoDB connectivity and collection counts", 
-            inline=False
-    )
-    embed.add_field(
-        name="📊 Stats & Utilities", 
-        value="`?stats [user]` - View a user's customized level card\n"
-              "`?customize [image]` - Fully customize your stats background and fonts\n"
-              "`?leaderstats` - See the top 15 users in the server\n"
-              "`?serverinfo` - Display information about this server\n"
-              "`?shortcuts` - See every command's short alias", 
-            inline=False
-    )
-    embed.add_field(
-        name="🎮 Fun & Random", 
-        value="`?weather <city>` - Get the current weather\n"
-              "`?randomlinux` / `?whoami` / `?pythontip` - Tech stuff\n"
-              "`?neofetch` / `?cowsay <text>` / `?fortune` - Linux terminal fun\n"
-              "`?packagemap <action>` / `?distrobattle` - More Linux nerdery\n"
-              "`?uptime` - How long the bot has been running\n"
-              "`?tankfact` / `?mmafact` - Interesting facts\n"
-              "`?tea` - Brew some tea for someone\n"
-              "`?coinflip` / `?diceroll` / `?8ball` / `?joke` / `?gif` - Minigames", 
-            inline=False
-    )
-    embed.set_footer(text="Arguments in [brackets] are optional, <angle brackets> are required. Try /help too!")
-    await ctx.send(embed=embed)
-
-@bot.listen()
-async def on_command_error(ctx, error):
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ **Access Denied:** You don't have permission to use this command!")
-    elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(f"❌ **Syntax Error:** You are missing some arguments! Check `?help` for usage.")
-    else:
-        pass 
 
 keep_alive()
-bot.run(os.environ["DISCORD_TOKEN"])
+bot.run(os.environ.get("DISCORD_TOKEN"))
