@@ -12,6 +12,10 @@ import asyncio
 import certifi
 import feedparser
 import re 
+import ast
+import traceback
+import io
+import sys
 from unidecode import unidecode
 from easy_pil import Editor, Canvas, Font, load_image_async
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -728,10 +732,116 @@ async def apply_warning(member, reason, guild):
             print(f"Warning reset DB error: {e}")
         warning_db[member.id] = 0
 
+# ==========================================
+# TERMINAL SANDBOX GÜVENLİK SİSTEMİ
+# ==========================================
+def check_code_safety(code):
+    """Zararlı kodları tespit eden AST tabanlı güvenlik filtresi."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as e:
+        return False, f"Syntax Error: {e}"
+    
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            return False, "Security Error: Imports are disabled in the sandbox."
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                if node.func.id in ['open', 'eval', 'exec', '__import__', 'globals', 'locals', 'compile', 'input']:
+                    return False, f"Security Error: The function `{node.func.id}` is blocked in the sandbox."
+            elif isinstance(node.func, ast.Attribute):
+                if node.func.attr in ['system', 'popen', 'spawn', 'run']:
+                    return False, f"Security Error: The attribute `{node.func.attr}` is blocked."
+    return True, ""
+
+def execute_sandbox_sync(code):
+    """Kodun çalıştırıldığı izole alan."""
+    safe, msg = check_code_safety(code)
+    if not safe:
+        return msg
+
+    output_buffer = io.StringIO()
+
+    def custom_print(*args, sep=' ', end='\n', file=None):
+        if file is None:
+            output_buffer.write(sep.join(map(str, args)) + end)
+        else:
+            file.write(sep.join(map(str, args)) + end)
+
+    safe_builtins = {
+        'print': custom_print, 'range': range, 'len': len, 'int': int, 'float': float,
+        'str': str, 'bool': bool, 'list': list, 'dict': dict, 'set': set, 'tuple': tuple,
+        'sum': sum, 'min': min, 'max': max, 'abs': abs, 'round': round, 'type': type,
+        'Exception': Exception, 'ValueError': ValueError, 'TypeError': TypeError,
+        'IndexError': IndexError, 'KeyError': KeyError, 'ZeroDivisionError': ZeroDivisionError,
+        'enumerate': enumerate, 'zip': zip, 'map': map, 'filter': filter, 'all': all, 'any': any,
+        'sorted': sorted, 'reversed': reversed, 'isinstance': isinstance, 'issubclass': issubclass,
+        'chr': chr, 'ord': ord, 'hex': hex, 'oct': oct, 'bin': bin
+    }
+    safe_env = {'__builtins__': safe_builtins}
+    
+    try:
+        exec(code, safe_env, safe_env)
+    except Exception as e:
+        output_buffer.write("".join(traceback.format_exception_only(type(e), e)).strip() + "\n")
+        
+    return output_buffer.getvalue()
+
+async def execute_sandbox(code):
+    """Botu dondurmamak için executor üzerinden 3 saniyelik timeout ile kodu çalıştırır."""
+    loop = asyncio.get_running_loop()
+    try:
+        future = loop.run_in_executor(None, execute_sandbox_sync, code)
+        output = await asyncio.wait_for(future, timeout=3.0)
+        return output
+    except asyncio.TimeoutError:
+        return "Timeout Error: Code execution took too long (infinite loop?)."
+    except Exception as e:
+        return f"Execution Error: {e}"
+
 @bot.event
 async def on_message(message):
     if message.author == bot.user or message.author.bot:
         return
+        
+    # ==========================================
+    # TERMINAL İŞLEYİCİSİ (En üstte olmalı ki spam algılamasın)
+    # ==========================================
+    if message.channel.category_id == 1510339895032418506 and message.channel.name.startswith("terminal-"):
+        is_mod = message.author.guild_permissions.manage_messages
+        is_owner = str(message.author.id) in (message.channel.topic or "")
+        
+        if is_owner or is_mod:
+            code = message.content.strip()
+            
+            if code.lower() in ['exit()', 'close()', 'exit', 'close', '?close']:
+                await message.channel.delete(reason="User closed terminal.")
+                return
+
+            # Kod bloklarını (```python ... ```) temizle
+            if code.startswith("```python"): code = code[9:]
+            elif code.startswith("```py"): code = code[5:]
+            elif code.startswith("```"): code = code[3:]
+            if code.endswith("```"): code = code[:-3]
+            code = code.strip()
+
+            if not code: return
+
+            await message.add_reaction("⏳")
+            output = await execute_sandbox(code)
+            
+            if len(output) > 1900:
+                output = output[:1900] + "\n... [Output Truncated]"
+            if not output.strip():
+                output = "Code executed successfully (no output)."
+
+            await message.channel.send(f"```python\n{output}\n```")
+            try:
+                await message.remove_reaction("⏳", bot.user)
+            except Exception:
+                pass
+            return # Terminal işlemlerinde XP veya Spam filtresini atla!
+    
     global last_activity_time
     last_activity_time = time.time()
     is_mod = message.author.guild_permissions.manage_messages
@@ -851,6 +961,50 @@ async def try_smart_command_match(message):
         )
         return True
     return False
+
+@bot.hybrid_command(name="terminal", aliases=["term"], description="Opens a private Python sandbox terminal.")
+async def terminal(ctx):
+    category = bot.get_channel(1510339895032418506)
+    if not category:
+        return await ctx.send("❌ Error: The required category for terminals was not found.", ephemeral=True)
+        
+    # Check if user already has a terminal
+    existing_channel = discord.utils.get(category.text_channels, name=f"terminal-{ctx.author.name.lower()}")
+    if existing_channel:
+        return await ctx.send(f"❌ You already have an active terminal: {existing_channel.mention}", ephemeral=True)
+
+    overwrites = {
+        ctx.guild.default_role: discord.PermissionOverwrite(read_messages=False),
+        ctx.author: discord.PermissionOverwrite(read_messages=True, send_messages=True, read_message_history=True),
+        ctx.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, manage_channels=True)
+    }
+    
+    for role in ctx.guild.roles:
+        if role.permissions.manage_messages:
+            overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+            
+    term_channel = await ctx.guild.create_text_channel(
+        name=f"terminal-{ctx.author.name}",
+        category=category,
+        overwrites=overwrites,
+        topic=f"{ctx.author.id}"
+    )
+    
+    embed = discord.Embed(
+        title="🐍 Python Sandbox Terminal",
+        description=f"Welcome {ctx.author.mention}! This channel is your isolated Python environment.\n\n"
+                    f"🔒 **Security Rules:**\n"
+                    f"• Imports, file I/O, and dangerous functions (`eval`, `exec`) are strictly **BLOCKED**.\n"
+                    f"• Infinite loops will automatically time out after 3 seconds.\n"
+                    f"• You cannot interact with or harm the Discord bot or the server.\n\n"
+                    f"💡 **How to use:**\n"
+                    f"Just type your Python code directly into the chat and send it! (Code blocks work too).\n\n"
+                    f"🛑 **To Exit:**\n"
+                    f"Type `close()` or `exit()` to delete this channel.",
+        color=discord.Color.green()
+    )
+    await term_channel.send(embed=embed)
+    await ctx.send(f"✅ Terminal successfully initialized: {term_channel.mention}", ephemeral=True)
 
 @bot.hybrid_command(name="starteventonsunday", aliases=["startevent"], description="Manually starts the 3x XP event (admin).")
 @commands.has_permissions(administrator=True)
@@ -1530,22 +1684,37 @@ async def neofetch(ctx):
         final_os = selected_bsd[0]
         final_ascii = selected_bsd[1]
 
-    gpu_name = "Virtual GPU"
-    if 1521879270530486414 in user_role_ids:
-        gpu_name = "NVIDIA Corporation"
-    elif 1521879224951246928 in user_role_ids:
-        gpu_name = "AMD/Advanced Micro Devices"
-    elif 1521879315648614410 in user_role_ids:
-        gpu_name = "Intel Corporation"
+    # Yetki Seviyesi Kontrolü (Mod mu değil mi?)
+    is_mod = ctx.author.guild_permissions.manage_messages or ctx.author.guild_permissions.administrator
+    auth_level = "/Root" if is_mod else "/User"
 
-    created_date = ctx.author.created_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+    # Uptime Hesaplanması (Kullanıcının sunucuya katılmasından itibaren geçen süre)
+    join_time = ctx.author.joined_at
+    if join_time:
+        now = datetime.datetime.now(datetime.timezone.utc)
+        diff = now - join_time
+        d = diff.days
+        h, rem = divmod(diff.seconds, 3600)
+        m, _ = divmod(rem, 60)
+        uptime_str = f"{d}d {h}h {m}m"
+    else:
+        uptime_str = "Unknown"
+
+    role_count = len(ctx.author.roles) - 1
+
+    top_line = f"{ctx.author.name}@Linux & Beyond"
+    separator = "-" * len(top_line)
 
     stats_lines = [
-        f"User: {ctx.author.name}",
-        f"User ID: {ctx.author.id}",
-        f"Created At: {created_date}",
-        f"Graphics Card: {gpu_name}",
-        f"Operating System: {final_os}"
+        top_line,
+        separator,
+        f"OS: {final_os}",
+        f"Host: Linux & Beyond",
+        f"Authority: {auth_level}",
+        f"Uptime: {uptime_str}",
+        f"Roles: {role_count}",
+        f"Shell: adminpingu-bot ?/slash",
+        f"Prefix: ? (or use / anywhere)"
     ]
 
     neofetch_output = "```ansi\n"
