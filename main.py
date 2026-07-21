@@ -16,6 +16,7 @@ import ast
 import traceback
 import io
 import sys
+import difflib
 from unidecode import unidecode
 from easy_pil import Editor, Canvas, Font, load_image_async
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -54,7 +55,6 @@ USER_ROLE_ID = 1510547520273649704
 MEDIA_ROLE_ID = 1521875919864856714       
 
 ACTIVE_EVENT_CHANNEL_ID = None
-
 REMINDER_INACTIVITY_THRESHOLD_SECONDS = 3600
 
 LEVEL_ROLES = {
@@ -262,6 +262,7 @@ try:
     xp_collection = db["users_xp"]
     config_collection = db["server_config"]
     warnings_collection = db["user_warnings"]
+    customizations_collection = db["customizations"]
 except Exception as e:
     print(f"MongoDB Initialization Error: {e}")
 
@@ -397,7 +398,7 @@ class FontSelect(discord.ui.Select):
         super().__init__(placeholder="Select a Custom Font", min_values=1, max_values=1, options=options, custom_id="font_select")
 
     async def callback(self, interaction: discord.Interaction):
-        await xp_collection.update_one({"_id": interaction.user.id}, {"$set": {"font": self.values[0]}}, upsert=True)
+        await customizations_collection.update_one({"_id": interaction.user.id}, {"$set": {"font": self.values[0]}}, upsert=True)
         await interaction.response.send_message(f"✅ Your font preference has been saved to: `{self.values[0]}`", ephemeral=True)
 
 class TemplateSelect(discord.ui.Select):
@@ -412,7 +413,7 @@ class TemplateSelect(discord.ui.Select):
         super().__init__(placeholder="Select a Preset Color Template", min_values=1, max_values=1, options=options, custom_id="template_select")
 
     async def callback(self, interaction: discord.Interaction):
-        await xp_collection.update_one({"_id": interaction.user.id}, {"$set": {"template": self.values[0]}}, upsert=True)
+        await customizations_collection.update_one({"_id": interaction.user.id}, {"$set": {"template": self.values[0]}}, upsert=True)
         await interaction.response.send_message(f"✅ Your template schema has been set to: `{self.values[0]}`", ephemeral=True)
 
 class RGBColorModal(Modal, title="Custom 16 Million RGB Colors"):
@@ -445,7 +446,7 @@ class RGBColorModal(Modal, title="Custom 16 Million RGB Colors"):
             update_dict["custom_accent_color"] = self.accent_color.value.strip()
 
         if update_dict:
-            await xp_collection.update_one({"_id": interaction.user.id}, {"$set": update_dict}, upsert=True)
+            await customizations_collection.update_one({"_id": interaction.user.id}, {"$set": update_dict}, upsert=True)
             await interaction.response.send_message("✅ Your custom 16M RGB colors have been applied!", ephemeral=True)
         else:
             await interaction.response.send_message("⚠️ No valid hex color values were provided.", ephemeral=True)
@@ -912,7 +913,7 @@ async def execute_sandbox(code):
         output = await asyncio.wait_for(future, timeout=3.0)
         return output
     except asyncio.TimeoutError:
-        return "Timeout Error: Code execution took too long (infinite loop?)."
+        return "Timeout Error: Code execution took too long."
     except Exception as e:
         return f"Execution Error: {e}"
 
@@ -1027,10 +1028,6 @@ async def on_message(message):
         return
     await bot.process_commands(message)
 
-def _is_subsequence(typed, full):
-    it = iter(full)
-    return all(ch in it for ch in typed)
-
 async def try_smart_command_match(message):
     prefix = "?"
     if message.author.bot or not message.content.startswith(prefix):
@@ -1041,38 +1038,29 @@ async def try_smart_command_match(message):
     parts = body.split(maxsplit=1)
     typed_cmd = parts[0].lower()
     rest = parts[1] if len(parts) > 1 else ""
+
     if bot.get_command(typed_cmd) is not None:
         return False
+
     if len(typed_cmd) < 2:
         return False
 
-    startswith_matches = []
-    subsequence_matches = []
+    all_cmds = []
+    cmd_map = {}
     for cmd in bot.commands:
-        all_names = [cmd.name] + list(cmd.aliases)
-        matched_start = any(name.lower().startswith(typed_cmd) for name in all_names)
-        matched_subseq = any(_is_subsequence(typed_cmd, name.lower()) for name in all_names)
-        if matched_start:
-            startswith_matches.append(cmd)
-        elif matched_subseq:
-            subsequence_matches.append(cmd)
+        all_cmds.append(cmd.name)
+        cmd_map[cmd.name] = cmd.name
+        for alias in cmd.aliases:
+            all_cmds.append(alias)
+            cmd_map[alias] = cmd.name
 
-    candidates = startswith_matches if startswith_matches else subsequence_matches
-    unique_candidates = list({c.name: c for c in candidates}.values())
-
-    if len(unique_candidates) == 1:
-        matched_cmd = unique_candidates[0]
-        new_content = f"{prefix}{matched_cmd.name} {rest}".strip()
-        message.content = new_content
+    matches = difflib.get_close_matches(typed_cmd, all_cmds, n=1, cutoff=0.4)
+    if matches:
+        best_match = cmd_map[matches[0]]
+        message.content = f"{prefix}{best_match} {rest}".strip()
         await bot.process_commands(message)
         return True
-    elif 1 < len(unique_candidates) <= 8:
-        options = ", ".join(f"`{prefix}{c.name}`" for c in unique_candidates)
-        await message.channel.send(
-            f"❓ Did you mean: {options}?\n"
-            f"Tip: use `?shortcuts` to view all valid shortcuts."
-        )
-        return True
+
     return False
 
 @bot.hybrid_command(name="terminal", aliases=["term"], description="Opens a private Python sandbox terminal.")
@@ -1106,7 +1094,7 @@ async def terminal(ctx):
         title="🐍 Python Sandbox Terminal",
         description=f"Welcome {ctx.author.mention}! This channel is your isolated Python environment.\n\n"
                     f"🔒 **Security Rules:**\n"
-                    f"• Imports, file I/O, and dangerous functions (`eval`, `exec`) are strictly **BLOCKED**.\n"
+                    f"• Imports, file I/O, and dangerous functions are strictly **BLOCKED**.\n"
                     f"• Infinite loops will automatically time out after 3 seconds.\n"
                     f"• You cannot interact with or harm the Discord bot or the server.\n\n"
                     f"💡 **How to use:**\n"
@@ -1355,26 +1343,31 @@ async def unban(ctx, user_id: int):
         await ctx.send(f"❌ Failed to unban: {e}")
 
 @bot.hybrid_command(name="customize", description="Customize your stats card background image, fonts, and 16M RGB colors.")
-async def customize(ctx, background_image: discord.Attachment = None, image_url: str = None):
+async def customize(ctx, background_image: discord.Attachment = None):
     if ctx.interaction:
         await ctx.defer(ephemeral=True)
 
-    target_url = None
     if background_image:
-        target_url = background_image.url
-    elif image_url:
-        target_url = image_url
-
-    if target_url:
-        await xp_collection.update_one({"_id": ctx.author.id}, {"$set": {"bg_image": target_url}}, upsert=True)
-        msg = "✅ Background image saved! Use the customizer menu below to adjust your font, preset template, or 16M custom RGB colors."
+        if background_image.content_type in ["image/png", "image/jpeg", "image/webp", "image/jpg"]:
+            await customizations_collection.update_one(
+                {"_id": ctx.author.id}, 
+                {"$set": {"bg_image": background_image.url}}, 
+                upsert=True
+            )
+            msg = "✅ Background image saved to MongoDB! Use the exclusive menu below to adjust fonts and RGB colors."
+        else:
+            msg = "❌ Invalid file type! Please upload a PNG, JPG, or WEBP."
     else:
-        msg = "Welcome to the Card Customizer! Use the options below to configure fonts, templates, and full 16M RGB colors."
+        msg = "🎨 Welcome to the Customizer! Select your fonts and colors below.\n*(To set a background image, run this command again and attach an image!)*"
 
     if ctx.interaction:
         await ctx.interaction.followup.send(msg, view=CustomizeView(), ephemeral=True)
     else:
-        await ctx.send(msg, view=CustomizeView())
+        try:
+            await ctx.message.delete()
+        except Exception:
+            pass
+        await ctx.send(msg, view=CustomizeView(), delete_after=120)
 
 @bot.hybrid_command(name="stats", aliases=["st", "profile", "rank", "lvl"], description="Shows a user's customized level and XP card.")
 async def stats(ctx, member: discord.Member = None):
@@ -1387,6 +1380,13 @@ async def stats(ctx, member: discord.Member = None):
         user_data = None
     if not user_data:
         user_data = {"total": 0, "level": 1}
+        
+    try:
+        custom_data = await customizations_collection.find_one({"_id": member.id})
+    except Exception:
+        custom_data = None
+    if not custom_data:
+        custom_data = {}
     
     current_xp = user_data.get("total", 0)
     current_level = get_level_from_total_xp(current_xp)
@@ -1396,9 +1396,9 @@ async def stats(ctx, member: discord.Member = None):
     xp_needed_for_level = next_level_xp - prev_level_xp
     percentage = min(max(xp_into_level / xp_needed_for_level, 0.0), 1.0) if xp_needed_for_level > 0 else 1.0
 
-    bg_url = user_data.get("bg_image")
-    template = user_data.get("template", "dark")
-    font_choice = user_data.get("font", "arial")
+    bg_url = custom_data.get("bg_image")
+    template = custom_data.get("template", "dark")
+    font_choice = custom_data.get("font", "arial")
 
     bg_color = "#1e1e2e"
     text_color = "#ffffff"
@@ -1415,12 +1415,12 @@ async def stats(ctx, member: discord.Member = None):
     elif template == "light":
         bg_color, text_color, bar_color, panel_color, accent_color = "#ffffff", "#000000", "#0055ff", "#eeeeee", "#0055ff"
 
-    if user_data.get("custom_text_color"):
-        text_color = user_data.get("custom_text_color")
-    if user_data.get("custom_bar_color"):
-        bar_color = user_data.get("custom_bar_color")
-    if user_data.get("custom_accent_color"):
-        accent_color = user_data.get("custom_accent_color")
+    if custom_data.get("custom_text_color"):
+        text_color = custom_data.get("custom_text_color")
+    if custom_data.get("custom_bar_color"):
+        bar_color = custom_data.get("custom_bar_color")
+    if custom_data.get("custom_accent_color"):
+        accent_color = custom_data.get("custom_accent_color")
 
     try:
         if bg_url:
@@ -1870,95 +1870,22 @@ async def packagemap(ctx, action: str = "install"):
             "Debian/Ubuntu (apt)": "sudo apt update && sudo apt upgrade",
             "Fedora/RHEL (dnf)": "sudo dnf upgrade --refresh",
             "Arch (pacman)": "sudo pacman -Syu",
-            "openSUSE (zypper)": "sudo zypper refresh && sudo zypper update",
-            "Alpine (apk)": "sudo apk update && sudo apk upgrade"
-        },
-        "search": {
-            "Debian/Ubuntu (apt)": "apt search <package>",
-            "Fedora/RHEL (dnf)": "dnf search <package>",
-            "Arch (pacman)": "pacman -Ss <package>",
-            "openSUSE (zypper)": "zypper search <package>",
-            "Alpine (apk)": "apk search <package>"
+            "openSUSE (zypper)": "sudo zypper update",
+            "Alpine (apk)": "sudo apk upgrade"
         }
     }
+    
     if action not in cheatsheet:
-        return await ctx.send(f"❌ Unknown action `{action}`. Try one of: `install`, `remove`, `update`, `search`.")
-    table = cheatsheet[action]
-    desc = "\n".join([f"**{distro}**\n`{cmd}`" for distro, cmd in table.items()])
-    embed = discord.Embed(title=f"📦 Package Manager Cheatsheet — {action}", description=desc, color=discord.Color.blurple())
-    await ctx.send(embed=embed)
-
-@bot.hybrid_command(name="distrobattle", aliases=["db", "distrowar"], description="Pits two random Linux distros against each other.")
-async def distrobattle(ctx):
-    distros = [
-        "Arch Linux", "Ubuntu", "Fedora", "Debian", "Gentoo", "NixOS",
-        "Void Linux", "Manjaro", "openSUSE", "Alpine Linux", "Slackware", "CachyOS"
-    ]
-    fighter_a, fighter_b = random.sample(distros, 2)
-    winner = random.choice([fighter_a, fighter_b])
-    taunts = [
-        "compiled its way to victory in record time.",
-        "won simply because it didn't need a GUI to fight.",
-        "took the crown after the other's package manager crashed mid-battle.",
-        "claimed victory using nothing but a rolling release and pure spite.",
-        "won because 'I use Arch btw' carries actual combat power.",
-        "outlasted the opponent with superior documentation."
-    ]
-    embed = discord.Embed(
-        title="⚔️ Distro Battle Arena",
-        description=f"**{fighter_a}** 🆚 **{fighter_b}**\n\n🏆 **{winner}** {random.choice(taunts)}",
-        color=discord.Color.dark_gold()
-    )
-    await ctx.send(embed=embed)
-
-@bot.hybrid_command(name="uptime", aliases=["up"], description="Shows how long the bot has been running.")
-async def uptime(ctx):
-    uptime_seconds = int(time.time() - BOT_START_TIME)
-    days, rem = divmod(uptime_seconds, 86400)
-    hours, rem = divmod(rem, 3600)
-    minutes, seconds = divmod(rem, 60)
-    embed = discord.Embed(title="⏱️ System Uptime", color=discord.Color.dark_teal())
-    embed.add_field(name="Process", value="`adminpingu-bot`", inline=True)
-    embed.add_field(name="Status", value="`running`", inline=True)
-    embed.add_field(name="Uptime", value=f"`{days}d {hours}h {minutes}m {seconds}s`", inline=False)
-    await ctx.send(embed=embed)
-
-@bot.hybrid_command(name="shortcuts", aliases=["sc", "aliases"], description="Lists all command shortcuts.")
-async def shortcuts(ctx):
-    embed = discord.Embed(
-        title="⚡ Command Shortcuts",
-        description="Full commands and their short forms. Both `?` prefix and `/` slash commands are fully supported.\n\n"
-                    "• `?st` / `?profile` / `?rank` -> `?stats`\n"
-                    "• `?ls` / `?top` -> `?leaderstats`\n"
-                    "• `?term` -> `?terminal`\n"
-                    "• `?sc` / `?aliases` -> `?shortcuts`\n"
-                    "• `?rl` / `?linuxtip` -> `?randomlinux`\n"
-                    "• `?wa` -> `?whoami`\n"
-                    "• `?wx` -> `?weather`\n"
-                    "• `?tf` -> `?tankfact`\n"
-                    "• `?mf` -> `?mmafact`\n"
-                    "• `?ptip` -> `?pythontip`\n"
-                    "• `?pg` -> `?ping`\n"
-                    "• `?si` / `?sinfo` -> `?serverinfo`\n"
-                    "• `?av` / `?pfp` -> `?avatar`\n"
-                    "• `?cf` / `?flip` -> `?coinflip`\n"
-                    "• `?dice` / `?roll` -> `?diceroll`\n"
-                    "• `?j` -> `?joke`\n"
-                    "• `?g` -> `?gif`\n"
-                    "• `?nf` / `?sysinfo` -> `?neofetch`\n"
-                    "• `?cow` -> `?cowsay`\n"
-                    "• `?ft` -> `?fortune`\n"
-                    "• `?pkg` -> `?packagemap`\n"
-                    "• `?db` / `?distrowar` -> `?distrobattle`\n"
-                    "• `?up` -> `?uptime`",
-        color=discord.Color.gold()
-    )
+        return await ctx.send("❌ Valid actions: `install`, `remove`, `update`.")
+        
+    embed = discord.Embed(title=f"📦 Package Map: '{action}'", color=discord.Color.gold())
+    for os_name, cmd in cheatsheet[action].items():
+        embed.add_field(name=os_name, value=f"`{cmd}`", inline=False)
+        
     await ctx.send(embed=embed)
 
 keep_alive()
-
-TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
-if TOKEN:
-    bot.run(TOKEN)
-else:
-    print("❌ Critical Error: DISCORD_BOT_TOKEN environment variable is missing!")
+try:
+    bot.run(os.environ.get("TOKEN"))
+except Exception as e:
+    print(f"CRITICAL ERROR: Failed to launch the Discord bot. Details: {e}")
