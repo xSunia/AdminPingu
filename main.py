@@ -1,9 +1,6 @@
-# ======================================================================
-# IMPORTS
-# ======================================================================
 import discord
 from discord.ext import commands, tasks
-from discord.ui import Select, View
+from discord.ui import Select, View, Modal, TextInput
 from flask import Flask
 from threading import Thread
 import random
@@ -18,17 +15,13 @@ import re
 import ast
 import traceback
 import io
-import sys
 import base64
-import importlib
+import sys
 from unidecode import unidecode
 from easy_pil import Editor, Canvas, Font, load_image_async
 from motor.motor_asyncio import AsyncIOMotorClient
-from PIL import Image, ImageEnhance
+from PIL import Image
 
-# ======================================================================
-# KEEP-ALIVE WEB SERVER (for free hosting platforms that ping a port)
-# ======================================================================
 app = Flask('')
 
 @app.route('/')
@@ -42,30 +35,27 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
-# ======================================================================
-# BOT SETUP
-# ======================================================================
 intents = discord.Intents.default()
 intents.messages = True
 intents.message_content = True
 intents.members = True
 intents.guilds = True
 
-bot = commands.Bot(command_prefix="?", intents=intents, help_command=None, case_insensitive=True)
+bot = commands.Bot(command_prefix="?", intents=intents, help_command=None)
 
 BOT_START_TIME = time.time()
 
-# ======================================================================
-# CHANNEL / ROLE IDS
-# ======================================================================
-LOG_CHANNEL_ID = 123456789012345678       
-WARNINGS_CHANNEL_ID = 1521880436270301354 
+# ==========================================
+# Channel & role IDs
+# ==========================================
+LOG_CHANNEL_ID = 123456789012345678
+WARNINGS_CHANNEL_ID = 1521880436270301354
 LEVEL_LOG_CHANNEL_ID = 1521880096854769785
-REMINDER_CHANNEL_ID = 123456789012345678  
-EPIC_LEVEL_100_CHANNEL = 1510339895032418508 
+REMINDER_CHANNEL_ID = 123456789012345678
+EPIC_LEVEL_100_CHANNEL = 1510339895032418508
 
-USER_ROLE_ID = 1510547520273649704        
-MEDIA_ROLE_ID = 1521875919864856714       
+USER_ROLE_ID = 1510547520273649704
+MEDIA_ROLE_ID = 1521875919864856714
 
 ACTIVE_EVENT_CHANNEL_ID = None
 
@@ -81,9 +71,9 @@ LEVEL_ROLES = {
     100: 1521924931875635210
 }
 
-# ======================================================================
-# STATIC CONTENT DATA (facts, jokes, tips, rules)
-# ======================================================================
+# ==========================================
+# Static content used by fun/utility commands
+# ==========================================
 LINUX_COMMANDS = [
     {"cmd": "ls", "desc": "Used to list directory contents. It's like taking a quick look at everything inside a folder!"},
     {"cmd": "cd", "desc": "Allows you to navigate between directories. It essentially teleports you from one path to another."},
@@ -199,12 +189,12 @@ ALL_DISTRO_ROLES = [
 ]
 ALL_GPU_ROLES = [1521879270530486414, 1521879224951246928, 1521879315648614410]
 
-# ======================================================================
-# PROFANITY FILTER
-# ======================================================================
+# ==========================================
+# Chat filter setup
+# ==========================================
 STRICT_BANNED_WORDS = {
-    "nigger", "nigga", "porn", "porno", "sex", "pussy", "fuck", 
-    "bitch", "cunt", "dick", "asshole", "slut", "whore", 
+    "nigger", "nigga", "porn", "porno", "sex", "pussy", "fuck",
+    "bitch", "cunt", "dick", "asshole", "slut", "whore",
     "faggot", "childporn", "rape", "pusy", "fck", "btch", "cp"
 }
 
@@ -274,9 +264,9 @@ def is_heavy_swear(text):
 
     return False
 
-# ======================================================================
-# DATABASE
-# ======================================================================
+# ==========================================
+# Database setup
+# ==========================================
 MONGO_URI = os.environ.get("MONGO_URI")
 
 try:
@@ -290,37 +280,14 @@ except Exception as e:
     print(f"MongoDB Initialization Error: {e}")
 
 warning_db = {}
-user_message_cache = {} 
-xp_message_counter = {} 
-LAST_NEWS_URL = "" 
+user_message_cache = {}
+xp_message_counter = {}
+LAST_NEWS_URL = ""
 last_activity_time = time.time()
 
-# ======================================================================
-# STATS CARD CUSTOMIZATION SETTINGS
-# ======================================================================
-FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
-
-FONT_CHOICES = {
-    "Arial": "ARIAL.TTF",
-    "Alunas": "Alunas.ttf",
-    "Brithany Calligraphy": "Brithany Calligraphy.ttf",
-    "Diploma": "Diploma.ttf",
-    "Impacted": "Impacted.ttf",
-    "Olde English": "OldeEnglish.ttf",
-    "Realtime": "Realtime.ttf",
-    "Terminus": "TerminusTTF-4.49.3.ttf",
-    "D2K": "d2k.ttf",
-    "Impact": "impact.ttf",
-    "Unicode Impact": "unicode.impact.ttf"
-}
-
-DEFAULT_FONT = "ARIAL.TTF"
-DEFAULT_BAR_COLOR = "#89B4FA"
-ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
-
-# ======================================================================
-# XP / LEVEL SYSTEM
-# ======================================================================
+# ==========================================
+# Leveling math
+# ==========================================
 def _xp_delta_for_level(level):
     base = 51.824 * (level ** 1.166)
     if level >= 90:
@@ -351,9 +318,9 @@ def get_level_from_total_xp(total_xp):
         level += 1
     return level
 
-# ======================================================================
-# XP EVENT STATE PERSISTENCE (survives bot restarts)
-# ======================================================================
+# ==========================================
+# Sunday event persistence helpers
+# ==========================================
 async def save_event_state(channel_id, ends_at_timestamp):
     try:
         await config_collection.update_one(
@@ -427,9 +394,9 @@ async def add_xp(user_id, amount):
         print(f"Database access error (add_xp): {e}")
         return []
 
-# ======================================================================
-# ROLE SELECTION UI (OS / GPU picker menus)
-# ======================================================================
+# ==========================================
+# OS / GPU role picker menus
+# ==========================================
 class DistroSelect(Select):
     def __init__(self, placeholder, options, custom_id):
         super().__init__(placeholder=placeholder, min_values=0, max_values=2, options=options, custom_id=custom_id)
@@ -440,7 +407,7 @@ class DistroSelect(Select):
         other_os_roles = [r for r in interaction.user.roles if r.id in ALL_DISTRO_ROLES and r.id not in self.menu_role_ids]
         if len(other_os_roles) + len(selected_role_ids) > 2:
             return await interaction.response.send_message(
-                "❌ **Dual-Boot Limit Reached:** You can only have a maximum of 2 OS roles across all menus! Please deselect an OS from another menu first.", 
+                "❌ **Dual-Boot Limit Reached:** You can only have a maximum of 2 OS roles across all menus! Please deselect an OS from another menu first.",
                 ephemeral=True
             )
         roles_to_add = []
@@ -537,135 +504,9 @@ class RolesView(View):
         self.add_item(DistroSelect(placeholder="Independent", options=indep_opts, custom_id="indep_menu"))
         self.add_item(GPUSelect())
 
-# ======================================================================
-# STATS CARD CUSTOMIZATION UI
-# ======================================================================
-async def render_stats_card(member, total_xp, level, percentage, xp_remaining, font_file, bar_color, bg_bytes=None):
-    width, height = 900, 280
-    if bg_bytes:
-        try:
-            pil_image = Image.open(io.BytesIO(bg_bytes)).convert("RGB").resize((width, height))
-            pil_image = ImageEnhance.Brightness(pil_image).enhance(0.55)
-            background = Editor(pil_image)
-        except Exception:
-            background = Editor(Canvas((width, height), color="#1e1e2e"))
-    else:
-        background = Editor(Canvas((width, height), color="#1e1e2e"))
-
-    font_path = os.path.join(FONTS_DIR, font_file)
-    name_font = Font(font_path, size=34)
-    label_font = Font(font_path, size=22)
-    small_font = Font(font_path, size=18)
-
-    avatar_image = await load_image_async(str(member.display_avatar.url))
-    profile = Editor(avatar_image).resize((150, 150)).circle_image()
-    background.paste(profile, (30, 65))
-
-    background.text((210, 40), member.name, font=name_font, color="#ffffff")
-    background.text((210, 90), f"Level {level}", font=label_font, color=bar_color)
-
-    bar_x, bar_y, bar_w, bar_h = 210, 150, 630, 34
-    background.rectangle((bar_x, bar_y), width=bar_w, height=bar_h, color="#313244", radius=10)
-    filled_w = max(int(bar_w * percentage), 6 if percentage > 0 else 0)
-    if filled_w > 0:
-        background.rectangle((bar_x, bar_y), width=filled_w, height=bar_h, color=bar_color, radius=10)
-
-    background.text((210, 200), f"{total_xp} XP total  |  {xp_remaining} XP to next level", font=small_font, color="#cdd6f4")
-
-    return background.image_bytes
-
-class CustomizeColorModal(discord.ui.Modal, title="Set Your Bar Color"):
-    hex_input = discord.ui.TextInput(
-        label="Hex color code",
-        placeholder="e.g. 89B4FA or #89B4FA",
-        min_length=3,
-        max_length=7,
-        required=True
-    )
-
-    def __init__(self, parent_view):
-        super().__init__()
-        self.parent_view = parent_view
-
-    async def on_submit(self, interaction: discord.Interaction):
-        raw = self.hex_input.value.strip().lstrip("#")
-        if not re.fullmatch(r"[0-9a-fA-F]{6}", raw):
-            return await interaction.response.send_message(
-                "That's not a valid hex color. Try something like `89B4FA`.", ephemeral=True
-            )
-        self.parent_view.bar_color = f"#{raw.upper()}"
-        await interaction.response.edit_message(embed=self.parent_view.build_embed(), view=self.parent_view)
-
-class CustomizeFontSelect(discord.ui.Select):
-    def __init__(self, parent_view):
-        options = [
-            discord.SelectOption(label=display_name, value=filename, default=(filename == parent_view.font_file))
-            for display_name, filename in FONT_CHOICES.items()
-        ]
-        super().__init__(placeholder="Choose a font for your stats card", options=options, min_values=1, max_values=1)
-        self.parent_view = parent_view
-
-    async def callback(self, interaction: discord.Interaction):
-        self.parent_view.font_file = self.values[0]
-        await interaction.response.edit_message(embed=self.parent_view.build_embed(), view=self.parent_view)
-
-class CustomizeView(discord.ui.View):
-    def __init__(self, user_id, font_file, bar_color, bg_bytes, bg_ext):
-        super().__init__(timeout=300)
-        self.user_id = user_id
-        self.font_file = font_file
-        self.bar_color = bar_color
-        self.bg_bytes = bg_bytes
-        self.bg_ext = bg_ext
-        self.add_item(CustomizeFontSelect(self))
-
-    def build_embed(self):
-        embed = discord.Embed(
-            title="🎨 Customize Your Stats Card",
-            description="Pick a font, set a bar color and optionally attach a background image. Press **Finish** to save.",
-            color=discord.Color.blurple()
-        )
-        embed.add_field(name="Font", value=f"`{self.font_file}`", inline=True)
-        embed.add_field(name="Bar Color", value=f"`{self.bar_color}`", inline=True)
-        embed.add_field(name="Background", value="Custom image attached" if self.bg_bytes else "Default (solid color)", inline=True)
-        embed.set_footer(text="Use ?customize with an image attached to change the background.")
-        return embed
-
-    async def interaction_check(self, interaction: discord.Interaction):
-        if interaction.user.id != self.user_id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
-            return False
-        return True
-
-    @discord.ui.button(label="Set Bar Color", style=discord.ButtonStyle.primary, emoji="🎨")
-    async def set_color(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(CustomizeColorModal(self))
-
-    @discord.ui.button(label="Preview", style=discord.ButtonStyle.secondary, emoji="👁️")
-    async def preview(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-        card_bytes = await render_stats_card(interaction.user, 4250, 8, 0.62, 1200, self.font_file, self.bar_color, self.bg_bytes)
-        await interaction.followup.send(file=discord.File(fp=card_bytes, filename="preview.png"), ephemeral=True)
-
-    @discord.ui.button(label="Finish", style=discord.ButtonStyle.success, emoji="✅")
-    async def finish(self, interaction: discord.Interaction, button: discord.ui.Button):
-        doc = {"font": self.font_file, "bar_color": self.bar_color}
-        if self.bg_bytes:
-            doc["bg_image_b64"] = base64.b64encode(self.bg_bytes).decode("utf-8")
-            doc["bg_image_ext"] = self.bg_ext
-        try:
-            await customization_collection.update_one({"_id": self.user_id}, {"$set": doc}, upsert=True)
-            result_text = "✅ Your stats card style has been saved!"
-        except Exception as e:
-            result_text = f"❌ Could not save your style: {e}"
-        for child in self.children:
-            child.disabled = True
-        await interaction.response.edit_message(content=result_text, embed=None, view=None)
-        self.stop()
-
-# ======================================================================
-# SCHEDULED TASKS
-# ======================================================================
+# ==========================================
+# Background loops
+# ==========================================
 @tasks.loop(minutes=30)
 async def half_hourly_reminder():
     await bot.wait_until_ready()
@@ -707,9 +548,9 @@ async def daily_tech_news():
         LAST_NEWS_URL = entry.link
         clean_summary = strip_html_tags(entry.summary) if hasattr(entry, "summary") else ""
         embed = discord.Embed(
-            title=f"📰 {entry.title}", 
-            url=entry.link, 
-            description=clean_summary[:500] + ("..." if len(clean_summary) > 500 else ""), 
+            title=f"📰 {entry.title}",
+            url=entry.link,
+            description=clean_summary[:500] + ("..." if len(clean_summary) > 500 else ""),
             color=discord.Color.teal()
         )
         embed.set_footer(text="Linux & Tech Intelligence Network")
@@ -730,7 +571,7 @@ async def sunday_xp_event():
     await bot.wait_until_ready()
     global ACTIVE_EVENT_CHANNEL_ID
     now = datetime.datetime.now(datetime.timezone.utc)
-    if now.weekday() != 6: 
+    if now.weekday() != 6:
         return
     category = bot.get_channel(1510339895032418506)
     if not category:
@@ -767,9 +608,9 @@ async def sunday_xp_event():
         ACTIVE_EVENT_CHANNEL_ID = None
         await clear_event_state()
 
-# ======================================================================
-# EVENT LISTENERS
-# ======================================================================
+# ==========================================
+# Startup / lifecycle events
+# ==========================================
 @bot.event
 async def on_ready():
     print('==========================================')
@@ -800,7 +641,7 @@ async def on_ready():
     half_hourly_reminder.start()
     reset_daily_xp.start()
     daily_tech_news.start()
-    sunday_xp_event.start() 
+    sunday_xp_event.start()
     bot.add_view(RolesView())
     try:
         state = await load_event_state()
@@ -879,9 +720,9 @@ async def on_member_remove(member):
     except Exception as e:
         print(f"Remove Image Render Error: {e}")
 
-# ======================================================================
-# WARNING SYSTEM
-# ======================================================================
+# ==========================================
+# Warning system
+# ==========================================
 async def apply_warning(member, reason, guild):
     total_warns = None
     try:
@@ -924,42 +765,25 @@ async def apply_warning(member, reason, guild):
             print(f"Warning reset DB error: {e}")
         warning_db[member.id] = 0
 
-# ======================================================================
-# TERMINAL SANDBOX SECURITY SYSTEM
-# ======================================================================
-# Whitelist of pure standard-library modules with no filesystem, network,
-# process or OS access. This is the full list of imports allowed inside
-# the ?terminal sandbox.
-ALLOWED_MODULES = {
-    "random", "time", "math", "datetime", "statistics", "itertools", "functools",
-    "collections", "string", "re", "json", "decimal", "fractions", "cmath",
-    "bisect", "heapq", "calendar", "textwrap", "unicodedata", "difflib",
-    "pprint", "operator", "copy", "enum", "dataclasses", "typing", "uuid",
-    "hashlib", "base64", "secrets", "array", "numbers", "keyword", "timeit",
-    "struct", "csv", "abc", "warnings", "traceback", "zlib", "binascii",
-    "codecs", "locale", "gettext", "reprlib", "graphlib", "queue",
-    "weakref", "contextvars"
-}
-
-# Builtin functions that stay blocked no matter what, since they can read
-# or write files, break out of the sandbox, or inspect raw source code.
-BLOCKED_FUNCTIONS = {'eval', 'exec', 'globals', 'locals', 'compile', 'open'}
-
-# Attribute names that stay blocked when called directly (process spawning).
-BLOCKED_CALL_ATTRIBUTES = {'system', 'popen', 'spawn', 'run', 'Popen', 'call', 'check_output', 'check_call'}
-
-# Dunder attributes are blocked everywhere (not just on calls), since chaining
-# them together (e.g. ().__class__.__bases__[0].__subclasses__()) is the
-# classic way to escape a restricted-builtins sandbox and reach real builtins.
-BLOCKED_DUNDER_ATTRS = {
-    '__class__', '__bases__', '__subclasses__', '__mro__', '__globals__',
-    '__builtins__', '__import__', '__loader__', '__spec__', '__code__',
-    '__closure__', '__func__', '__self__', '__init_subclass__',
-    '__reduce__', '__reduce_ex__', '__getattribute__', '__dict__'
+# ==========================================
+# Terminal sandbox: allow-list and safety checks
+# ==========================================
+# Curated list of ~50 standard-library modules considered harmless in a
+# text-only, no-filesystem, no-network sandbox. Anything not on this list
+# is rejected by check_code_safety().
+ALLOWED_TERMINAL_MODULES = {
+    "random", "time", "math", "datetime", "string", "re", "itertools",
+    "functools", "collections", "statistics", "json", "textwrap", "calendar",
+    "decimal", "fractions", "cmath", "bisect", "heapq", "copy", "enum",
+    "typing", "dataclasses", "operator", "unicodedata", "difflib", "pprint",
+    "secrets", "uuid", "base64", "array", "keyword", "numbers", "colorsys",
+    "gettext", "locale", "timeit", "types", "warnings", "weakref", "abc",
+    "contextlib", "reprlib", "graphlib", "zoneinfo", "ipaddress", "html",
+    "csv", "queue", "hashlib", "struct"
 }
 
 def check_code_safety(code):
-    """Static AST scan that rejects anything unsafe before it ever runs."""
+    """AST-based safety filter for the terminal sandbox."""
     try:
         tree = ast.parse(code)
     except SyntaxError as e:
@@ -969,29 +793,42 @@ def check_code_safety(code):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 root_module = alias.name.split(".")[0]
-                if root_module not in ALLOWED_MODULES:
-                    return False, f"Security Error: Module `{alias.name}` is not allowed. Use `help-terminal()` to see the full list."
-        elif isinstance(node, ast.ImportFrom):
+                if root_module not in ALLOWED_TERMINAL_MODULES:
+                    return False, f"Security Error: Module `{alias.name}` is not on the sandbox allow-list."
+        if isinstance(node, ast.ImportFrom):
             root_module = (node.module or "").split(".")[0]
-            if root_module not in ALLOWED_MODULES:
-                return False, f"Security Error: Module `{node.module}` is not allowed. Use `help-terminal()` to see the full list."
+            if root_module not in ALLOWED_TERMINAL_MODULES:
+                return False, f"Security Error: Module `{node.module}` is not on the sandbox allow-list."
         if isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name):
-                if node.func.id in BLOCKED_FUNCTIONS:
+                if node.func.id in ['open', 'eval', 'exec', '__import__', 'globals', 'locals', 'compile']:
                     return False, f"Security Error: The function `{node.func.id}` is blocked in the sandbox."
             elif isinstance(node.func, ast.Attribute):
-                if node.func.attr in BLOCKED_CALL_ATTRIBUTES:
+                if node.func.attr in ['system', 'popen', 'spawn', 'run']:
                     return False, f"Security Error: The attribute `{node.func.attr}` is blocked."
-        if isinstance(node, ast.Attribute):
-            if node.attr in BLOCKED_DUNDER_ATTRS:
-                return False, f"Security Error: Accessing `{node.attr}` is blocked."
     return True, ""
 
+def _make_safe_import(allowed_modules):
+    def safe_import(name, globals=None, locals=None, fromlist=(), level=0):
+        root_module = name.split(".")[0]
+        if root_module not in allowed_modules:
+            raise ImportError(f"Module '{name}' is not on the sandbox allow-list.")
+        return __import__(name, globals, locals, fromlist, level)
+    return safe_import
+
 def execute_sandbox_sync(code):
-    """Runs the user's code with a locked-down builtins environment."""
+    """Runs user code in an isolated namespace with a restricted builtin set."""
     safe, msg = check_code_safety(code)
     if not safe:
         return msg
+
+    # Support a static input() feed: anything after a line containing only
+    # "---INPUT---" is treated as pre-supplied input, one value per line.
+    input_lines = []
+    if "---INPUT---" in code:
+        code, _, input_block = code.partition("---INPUT---")
+        input_lines = [ln for ln in input_block.strip().splitlines()]
+    input_iter = iter(input_lines)
 
     output_buffer = io.StringIO()
 
@@ -1001,39 +838,27 @@ def execute_sandbox_sync(code):
         else:
             file.write(sep.join(map(str, args)) + end)
 
-    def custom_input(prompt=""):
-        # There is no live keyboard behind this sandbox, so input() cannot
-        # actually pause for user input. It prints the prompt (if any) and
-        # returns an empty string instead of raising an error.
+    def custom_input(prompt=''):
         if prompt:
             output_buffer.write(str(prompt))
-        return ""
-
-    def safe_import(name, globals=None, locals=None, fromlist=(), level=0):
-        root_module = name.split(".")[0]
-        if root_module not in ALLOWED_MODULES:
-            raise ImportError(f"Module '{name}' is not allowed in the sandbox.")
-        return importlib.import_module(name)
+        try:
+            return next(input_iter)
+        except StopIteration:
+            return ""
 
     safe_builtins = {
-        'print': custom_print, 'input': custom_input, '__import__': safe_import,
-        'range': range, 'len': len, 'int': int, 'float': float,
-        'str': str, 'bool': bool, 'list': list, 'dict': dict, 'set': set, 'tuple': tuple,
-        'sum': sum, 'min': min, 'max': max, 'abs': abs, 'round': round, 'type': type,
+        'print': custom_print, 'input': custom_input, 'range': range, 'len': len,
+        'int': int, 'float': float, 'str': str, 'bool': bool, 'list': list,
+        'dict': dict, 'set': set, 'tuple': tuple, 'sum': sum, 'min': min,
+        'max': max, 'abs': abs, 'round': round, 'type': type,
         'Exception': Exception, 'ValueError': ValueError, 'TypeError': TypeError,
         'IndexError': IndexError, 'KeyError': KeyError, 'ZeroDivisionError': ZeroDivisionError,
-        'AttributeError': AttributeError, 'StopIteration': StopIteration,
-        'RuntimeError': RuntimeError, 'ArithmeticError': ArithmeticError,
-        'OverflowError': OverflowError, 'AssertionError': AssertionError,
-        'NameError': NameError, 'NotImplementedError': NotImplementedError,
-        'enumerate': enumerate, 'zip': zip, 'map': map, 'filter': filter, 'all': all, 'any': any,
-        'sorted': sorted, 'reversed': reversed, 'isinstance': isinstance, 'issubclass': issubclass,
-        'chr': chr, 'ord': ord, 'hex': hex, 'oct': oct, 'bin': bin, 'divmod': divmod,
-        'next': next, 'iter': iter, 'slice': slice, 'frozenset': frozenset,
-        'complex': complex, 'bytes': bytes, 'bytearray': bytearray, 'format': format,
-        'repr': repr, 'object': object, 'super': super, 'staticmethod': staticmethod,
-        'classmethod': classmethod, 'property': property, '__build_class__': __build_class__,
-        'NotImplemented': NotImplemented, 'Ellipsis': Ellipsis
+        'StopIteration': StopIteration, 'enumerate': enumerate, 'zip': zip,
+        'map': map, 'filter': filter, 'all': all, 'any': any, 'sorted': sorted,
+        'reversed': reversed, 'isinstance': isinstance, 'issubclass': issubclass,
+        'chr': chr, 'ord': ord, 'hex': hex, 'oct': oct, 'bin': bin, 'pow': pow,
+        'divmod': divmod, 'frozenset': frozenset, 'iter': iter, 'next': next,
+        '__import__': _make_safe_import(ALLOWED_TERMINAL_MODULES)
     }
     safe_env = {'__builtins__': safe_builtins}
 
@@ -1045,7 +870,7 @@ def execute_sandbox_sync(code):
     return output_buffer.getvalue()
 
 async def execute_sandbox(code):
-    """Runs the sync executor off the event loop with a 3 second timeout."""
+    """Runs the sandbox on a worker thread with a 3 second timeout."""
     loop = asyncio.get_running_loop()
     try:
         future = loop.run_in_executor(None, execute_sandbox_sync, code)
@@ -1056,68 +881,290 @@ async def execute_sandbox(code):
     except Exception as e:
         return f"Execution Error: {e}"
 
-# ======================================================================
-# MESSAGE HANDLER
-# ======================================================================
+TERMINAL_HELP_TEXT = (
+    "```text\n"
+    "AdminPingu Sandbox Terminal - Help\n"
+    "-----------------------------------\n"
+    "Allowed imports (" + str(len(ALLOWED_TERMINAL_MODULES)) + " modules):\n"
+    + ", ".join(sorted(ALLOWED_TERMINAL_MODULES)) + "\n\n"
+    "Allowed builtins: print, input, range, len, int, float, str, bool, list,\n"
+    "dict, set, tuple, sum, min, max, abs, round, type, enumerate, zip, map,\n"
+    "filter, all, any, sorted, reversed, isinstance, issubclass, chr, ord,\n"
+    "hex, oct, bin, pow, divmod, frozenset, iter, next, plus common exceptions.\n\n"
+    "Blocked: open, eval, exec, compile, __import__ (raw), globals, locals,\n"
+    "os.system/popen/spawn/run, and any module not in the list above.\n\n"
+    "Using input():\n"
+    "  Since this sandbox can't pause and wait on Discord, feed input() its\n"
+    "  values ahead of time. Add a line with only ---INPUT--- after your code,\n"
+    "  then one value per line below it. Example:\n\n"
+    "  name = input('Name: ')\n"
+    "  print('Hello,', name)\n"
+    "  ---INPUT---\n"
+    "  Sunia\n\n"
+    "Type close() or exit() to delete this terminal.\n"
+    "```"
+)
+
+# ==========================================
+# /customize command: font, background image and color picker
+# ==========================================
+FONTS_DIR = "fonts"
+FONT_OPTIONS = [
+    ("Arial", "ARIAL.TTF"),
+    ("Alunas", "Alunas.ttf"),
+    ("Brithany Calligraphy", "Brithany Calligraphy.ttf"),
+    ("Diploma", "Diploma.ttf"),
+    ("Impacted", "Impacted.ttf"),
+    ("Olde English", "OldeEnglish.ttf"),
+    ("Realtime", "Realtime.ttf"),
+    ("Terminus", "TerminusTTF-4.49.3.ttf"),
+    ("D2K", "d2k.ttf"),
+    ("Impact", "impact.ttf"),
+    ("Unicode Impact", "unicode.impact.ttf"),
+]
+DEFAULT_FONT_FILE = "impact.ttf"
+DEFAULT_COLOR_HEX = "#cba6f7"
+MAX_BACKGROUND_BYTES = 3 * 1024 * 1024
+ALLOWED_IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
+
+def get_font_path(filename):
+    path = os.path.join(FONTS_DIR, filename)
+    return path if os.path.exists(path) else None
+
+async def get_user_customization(user_id):
+    try:
+        doc = await customization_collection.find_one({"_id": user_id})
+    except Exception:
+        doc = None
+    if not doc:
+        doc = {}
+    return {
+        "font": doc.get("font", DEFAULT_FONT_FILE),
+        "color": doc.get("color", DEFAULT_COLOR_HEX),
+        "bg_data": doc.get("bg_data")
+    }
+
+async def save_user_customization(user_id, state):
+    await customization_collection.update_one(
+        {"_id": user_id},
+        {"$set": {
+            "font": state["font"],
+            "color": state["color"],
+            "bg_data": state.get("bg_data")
+        }},
+        upsert=True
+    )
+
+def hex_to_rgb(hex_str):
+    hex_str = hex_str.strip().lstrip("#")
+    return tuple(int(hex_str[i:i + 2], 16) for i in (0, 2, 4))
+
+async def render_stats_card(member, current_xp, current_level, next_level_xp, prev_level_xp, custom):
+    width, height = 900, 280
+    color_hex = custom.get("color", DEFAULT_COLOR_HEX)
+
+    if custom.get("bg_data"):
+        try:
+            raw = base64.b64decode(custom["bg_data"])
+            bg_image = Image.open(io.BytesIO(raw)).convert("RGB").resize((width, height))
+            background = Editor(bg_image)
+            background.rectangle((0, 0), width=width, height=height, color=(0, 0, 0, 140))
+        except Exception:
+            background = Editor(Canvas((width, height), color="#1e1e2e"))
+    else:
+        background = Editor(Canvas((width, height), color="#1e1e2e"))
+
+    font_file = custom.get("font", DEFAULT_FONT_FILE)
+    font_path = get_font_path(font_file)
+    if font_path:
+        title_font = Font(path=font_path, size=30)
+        text_font = Font(path=font_path, size=20)
+    else:
+        title_font = Font.poppins(variant="bold", size=30)
+        text_font = Font.poppins(size=20)
+
+    avatar_image = await load_image_async(str(member.display_avatar.url))
+    profile = Editor(avatar_image).resize((120, 120)).circle_image()
+    background.paste(profile, (30, 80))
+
+    background.text((170, 40), member.name, font=title_font, color=color_hex)
+    background.text((170, 90), f"Level {current_level}", font=text_font, color=color_hex)
+
+    xp_into_level = max(current_xp - prev_level_xp, 0)
+    xp_needed_for_level = max(next_level_xp - prev_level_xp, 1)
+    percentage = min(max(xp_into_level / xp_needed_for_level, 0.0), 1.0)
+
+    bar_x, bar_y, bar_w, bar_h = 170, 140, 680, 30
+    background.rectangle((bar_x, bar_y), width=bar_w, height=bar_h, radius=15, color="#313244")
+    fill_width = max(int(bar_w * percentage), bar_h) if percentage > 0 else 0
+    if fill_width > 0:
+        background.rectangle((bar_x, bar_y), width=fill_width, height=bar_h, radius=15, color=color_hex)
+    background.text((bar_x, bar_y + 35), f"{current_xp} / {next_level_xp} XP", font=text_font, color="#cdd6f4")
+
+    return discord.File(fp=background.image_bytes, filename="stats.png")
+
+class HexColorModal(Modal, title="Set Your Stats Color"):
+    hex_input = TextInput(label="Hex color (e.g. #89b4fa)", placeholder="#89b4fa", min_length=4, max_length=7, required=True)
+
+    def __init__(self, parent_view):
+        super().__init__()
+        self.parent_view = parent_view
+
+    async def on_submit(self, interaction: discord.Interaction):
+        value = self.hex_input.value.strip()
+        if not value.startswith("#"):
+            value = "#" + value
+        if not re.fullmatch(r"#[0-9A-Fa-f]{6}", value):
+            return await interaction.response.send_message("❌ That's not a valid hex color. Use a format like `#89b4fa`.", ephemeral=True)
+        self.parent_view.state["color"] = value
+        await interaction.response.send_message(f"✅ Color set to `{value}`.", ephemeral=True)
+
+class CustomizeView(View):
+    def __init__(self, author, initial_state):
+        super().__init__(timeout=300)
+        self.author = author
+        self.state = dict(initial_state)
+        self.message = None
+
+        font_select = Select(
+            placeholder="Choose a font for your stats card",
+            options=[discord.SelectOption(label=label, value=fname) for label, fname in FONT_OPTIONS],
+            min_values=1, max_values=1
+        )
+        font_select.callback = self.on_font_selected
+        self.add_item(font_select)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.author.id:
+            await interaction.response.send_message("❌ This customization menu isn't yours.", ephemeral=True)
+            return False
+        return True
+
+    async def on_font_selected(self, interaction: discord.Interaction):
+        self.state["font"] = interaction.data["values"][0]
+        await interaction.response.send_message(f"✅ Font set to `{self.state['font']}`.", ephemeral=True)
+
+    @discord.ui.button(label="Set Color", style=discord.ButtonStyle.primary, emoji="🎨")
+    async def set_color_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(HexColorModal(self))
+
+    @discord.ui.button(label="Upload Background", style=discord.ButtonStyle.secondary, emoji="🖼️")
+    async def set_background_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(
+            "📤 Send an image (`.jpg`, `.jpeg`, `.png`, or `.webp`, under 3MB) in this channel within 60 seconds.",
+            ephemeral=True
+        )
+
+        def check(m):
+            return m.author.id == self.author.id and m.channel.id == interaction.channel.id and m.attachments
+
+        try:
+            msg = await bot.wait_for('message', check=check, timeout=60.0)
+        except asyncio.TimeoutError:
+            return await interaction.followup.send("❌ Timed out waiting for an image.", ephemeral=True)
+
+        attachment = msg.attachments[0]
+        if not attachment.filename.lower().endswith(ALLOWED_IMAGE_EXTS):
+            return await interaction.followup.send("❌ Unsupported file type. Use jpg, jpeg, png, or webp.", ephemeral=True)
+        if attachment.size > MAX_BACKGROUND_BYTES:
+            return await interaction.followup.send("❌ That image is too large (max 3MB).", ephemeral=True)
+
+        try:
+            image_bytes = await attachment.read()
+            Image.open(io.BytesIO(image_bytes)).verify()
+            self.state["bg_data"] = base64.b64encode(image_bytes).decode("utf-8")
+            await interaction.followup.send("✅ Background image saved for preview/finish.", ephemeral=True)
+        except Exception:
+            await interaction.followup.send("❌ Couldn't read that image, try a different file.", ephemeral=True)
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+
+    @discord.ui.button(label="Preview", style=discord.ButtonStyle.secondary, emoji="👁️")
+    async def preview_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            user_data = await xp_collection.find_one({"_id": self.author.id})
+        except Exception:
+            user_data = None
+        if not user_data:
+            user_data = {"total": 0}
+        current_xp = user_data.get("total", 0)
+        current_level = get_level_from_total_xp(current_xp)
+        prev_level_xp = get_xp_requirement(current_level)
+        next_level_xp = get_xp_requirement(current_level + 1)
+        file = await render_stats_card(self.author, current_xp, current_level, next_level_xp, prev_level_xp, self.state)
+        await interaction.followup.send(content="Here's a preview with your current settings:", file=file, ephemeral=True)
+
+    @discord.ui.button(label="Finish", style=discord.ButtonStyle.success, emoji="✅")
+    async def finish_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await save_user_customization(self.author.id, self.state)
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(content="✅ Your customization has been saved!", embed=None, view=self)
+        self.stop()
+
+    async def on_timeout(self):
+        if self.message:
+            for child in self.children:
+                child.disabled = True
+            try:
+                await self.message.edit(content="⌛ Customization menu timed out. Run the command again to continue.", view=self)
+            except Exception:
+                pass
+
+@bot.hybrid_command(name="customize", aliases=["cust", "customise"], description="Personalize your stats card font, color and background.")
+async def customize(ctx):
+    if ctx.interaction:
+        await ctx.defer(ephemeral=True)
+    initial_state = await get_user_customization(ctx.author.id)
+    embed = discord.Embed(
+        title="🎨 Customize Your Stats Card",
+        description="Pick a font, set a hex color, and optionally upload a background image.\n"
+                    "Use **Preview** anytime, then hit **Finish** to save.",
+        color=discord.Color.blurple()
+    )
+    view = CustomizeView(ctx.author, initial_state)
+    message = await ctx.send(embed=embed, view=view, ephemeral=True) if ctx.interaction else await ctx.send(embed=embed, view=view)
+    view.message = message
+
+# ==========================================
+# Message handling: terminal, spam filter, profanity filter, XP
+# ==========================================
 @bot.event
 async def on_message(message):
     if message.author == bot.user or message.author.bot:
         return
 
-    # Terminal channel handling runs first so its messages never trigger
-    # the spam filter or the XP counter below.
+    # Terminal handler runs first so terminal messages skip spam/XP logic.
     if message.channel.category_id == 1510339895032418506 and message.channel.name.startswith("terminal-"):
         is_mod = message.author.guild_permissions.manage_messages
         is_owner = str(message.author.id) in (message.channel.topic or "")
-        
+
         if is_owner or is_mod:
             code = message.content.strip()
-            
+
             if code.lower() in ['exit()', 'close()', 'exit', 'close', '?close']:
                 await message.channel.delete(reason="User closed terminal.")
                 return
 
-            if code.lower() in ['help-terminal()', 'help-terminal', 'help()']:
-                embed = discord.Embed(
-                    title="🐍 Terminal Reference",
-                    description="Everything you're allowed to use inside this sandbox.",
-                    color=discord.Color.green()
-                )
-                embed.add_field(
-                    name=f"Allowed imports ({len(ALLOWED_MODULES)})",
-                    value=", ".join(f"`{m}`" for m in sorted(ALLOWED_MODULES)),
-                    inline=False
-                )
-                embed.add_field(
-                    name="Blocked functions",
-                    value=", ".join(f"`{f}`" for f in sorted(BLOCKED_FUNCTIONS)),
-                    inline=False
-                )
-                embed.add_field(
-                    name="input()",
-                    value="Works without errors, but this sandbox has no live keyboard, so it always returns an empty string.",
-                    inline=False
-                )
-                embed.add_field(
-                    name="Also blocked",
-                    value="File I/O, process spawning, and dunder attribute chains (e.g. `__class__`, `__bases__`) used for sandbox escapes.",
-                    inline=False
-                )
-                await message.channel.send(embed=embed)
+            if code.lower() in ['help-terminal()', 'help-terminal', '?help-terminal']:
+                await message.channel.send(TERMINAL_HELP_TEXT)
                 return
 
-            # Strip ```python ... ``` style code blocks before executing.
             if code.startswith("```python"): code = code[9:]
             elif code.startswith("```py"): code = code[5:]
             elif code.startswith("```"): code = code[3:]
             if code.endswith("```"): code = code[:-3]
             code = code.strip()
 
-            if not code: return
+            if not code:
+                return
 
             await message.add_reaction("⏳")
             output = await execute_sandbox(code)
-            
+
             if len(output) > 1900:
                 output = output[:1900] + "\n... [Output Truncated]"
             if not output.strip():
@@ -1128,8 +1175,8 @@ async def on_message(message):
                 await message.remove_reaction("⏳", bot.user)
             except Exception:
                 pass
-            return # Terminal activity never grants XP or triggers the spam filter
-    
+            return
+
     global last_activity_time
     last_activity_time = time.time()
     is_mod = message.author.guild_permissions.manage_messages
@@ -1144,7 +1191,7 @@ async def on_message(message):
                 await message.delete()
                 await message.channel.send(f"⚠️ Hey {message.author.mention}, please slow down and stop spamming!", delete_after=5)
                 await apply_warning(message.author, "Spamming the chat", message.guild)
-                user_message_cache[message.author.id] = [] 
+                user_message_cache[message.author.id] = []
                 return
         if is_heavy_swear(message.content):
             try:
@@ -1153,7 +1200,7 @@ async def on_message(message):
                 if warning_channel:
                     await warning_channel.send(f"🚨 Heads up! {message.author.mention} triggered the NSFW/Profanity filter.")
                 await apply_warning(message.author, "Used prohibited NSFW/Profanity terms", message.guild)
-                return  
+                return
             except Exception as e:
                 print(f"Profanity filter error: {e}")
     try:
@@ -1162,8 +1209,8 @@ async def on_message(message):
             xp_message_counter[author_id] = 0
         xp_message_counter[author_id] += 1
         if xp_message_counter[author_id] >= 3:
-            xp_message_counter[author_id] = 0 
-            gained = random.randint(5, 30) 
+            xp_message_counter[author_id] = 0
+            gained = random.randint(5, 30)
             if message.channel.id == ACTIVE_EVENT_CHANNEL_ID:
                 gained *= 3
             levels_gained = await add_xp(author_id, gained)
@@ -1202,9 +1249,9 @@ async def on_message(message):
         return
     await bot.process_commands(message)
 
-# ======================================================================
-# SMART COMMAND MATCHING (typo / shortcut tolerance)
-# ======================================================================
+# ==========================================
+# Fuzzy shortcut matcher for the ? prefix
+# ==========================================
 def _is_subsequence(typed, full):
     it = iter(full)
     return all(ch in it for ch in typed)
@@ -1253,16 +1300,15 @@ async def try_smart_command_match(message):
         return True
     return False
 
-# ======================================================================
-# TERMINAL COMMAND
-# ======================================================================
+# ==========================================
+# Terminal sandbox command
+# ==========================================
 @bot.hybrid_command(name="terminal", aliases=["term"], description="Opens a private Python sandbox terminal.")
 async def terminal(ctx):
     category = bot.get_channel(1510339895032418506)
     if not category:
         return await ctx.send("❌ Error: The required category for terminals was not found.", ephemeral=True)
-        
-    # Check if user already has a terminal
+
     existing_channel = discord.utils.get(category.text_channels, name=f"terminal-{ctx.author.name.lower()}")
     if existing_channel:
         return await ctx.send(f"❌ You already have an active terminal: {existing_channel.mention}", ephemeral=True)
@@ -1272,30 +1318,29 @@ async def terminal(ctx):
         ctx.author: discord.PermissionOverwrite(read_messages=True, send_messages=True, read_message_history=True),
         ctx.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, manage_channels=True)
     }
-    
+
     for role in ctx.guild.roles:
         if role.permissions.manage_messages:
             overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
-            
+
     term_channel = await ctx.guild.create_text_channel(
         name=f"terminal-{ctx.author.name}",
         category=category,
         overwrites=overwrites,
         topic=f"{ctx.author.id}"
     )
-    
+
     embed = discord.Embed(
         title="🐍 Python Sandbox Terminal",
         description=f"Welcome {ctx.author.mention}! This channel is your isolated Python environment.\n\n"
                     f"🔒 **Security Rules:**\n"
-                    f"• About {len(ALLOWED_MODULES)} safe standard library modules can be imported (`random`, `math`, `datetime`, etc.).\n"
-                    f"• File I/O and dangerous functions (`eval`, `exec`, `open`) are strictly **BLOCKED**.\n"
-                    f"• `input()` works and won't error, but always returns an empty string.\n"
+                    f"• Only {len(ALLOWED_TERMINAL_MODULES)} whitelisted standard-library modules can be imported.\n"
+                    f"• `eval`, `exec`, `compile`, `open`, and raw file/OS access are strictly **BLOCKED**.\n"
                     f"• Infinite loops will automatically time out after 3 seconds.\n"
                     f"• You cannot interact with or harm the Discord bot or the server.\n\n"
                     f"💡 **How to use:**\n"
-                    f"Just type your Python code directly into the chat and send it! (Code blocks work too).\n"
-                    f"Type `help-terminal()` any time to see the full list of allowed imports and rules.\n\n"
+                    f"Type your Python code directly into the chat and send it! (Code blocks work too).\n"
+                    f"Type `help-terminal()` to see the full list of allowed imports and how `input()` works.\n\n"
                     f"🛑 **To Exit:**\n"
                     f"Type `close()` or `exit()` to delete this channel.",
         color=discord.Color.green()
@@ -1303,9 +1348,6 @@ async def terminal(ctx):
     await term_channel.send(embed=embed)
     await ctx.send(f"✅ Terminal successfully initialized: {term_channel.mention}", ephemeral=True)
 
-# ======================================================================
-# ADMIN CONFIG COMMANDS
-# ======================================================================
 @bot.hybrid_command(name="starteventonsunday", aliases=["startevent"], description="Manually starts the 3x XP event (admin).")
 @commands.has_permissions(administrator=True)
 async def starteventonsunday(ctx):
@@ -1337,8 +1379,8 @@ async def starteventonsunday(ctx):
 async def setnewschannel(ctx, channel: discord.TextChannel = None):
     target_channel = channel or ctx.channel
     await config_collection.update_one(
-        {"_id": str(ctx.guild.id)}, 
-        {"$set": {"news_channel": str(target_channel.id)}}, 
+        {"_id": str(ctx.guild.id)},
+        {"$set": {"news_channel": str(target_channel.id)}},
         upsert=True
     )
     await target_channel.set_permissions(ctx.guild.default_role, send_messages=False)
@@ -1350,8 +1392,8 @@ async def setnewschannel(ctx, channel: discord.TextChannel = None):
 async def setjoinchannel(ctx, channel: discord.TextChannel = None):
     target_channel = channel or ctx.channel
     await config_collection.update_one(
-        {"_id": str(ctx.guild.id)}, 
-        {"$set": {"join_channel": str(target_channel.id)}}, 
+        {"_id": str(ctx.guild.id)},
+        {"$set": {"join_channel": str(target_channel.id)}},
         upsert=True
     )
     await ctx.send(f"✅ Users will now be greeted with visual terminal banners in {target_channel.mention}.")
@@ -1364,9 +1406,6 @@ async def messagesendadminpingu(ctx, channel: discord.TextChannel = None):
     REMINDER_CHANNEL_ID = target_channel.id
     await ctx.send(f"✅ The automated rules reminder will now be sent to {target_channel.mention} (only when the chat has been active recently).")
 
-# ======================================================================
-# MODERATION COMMANDS
-# ======================================================================
 @bot.hybrid_command(name="clear", aliases=["purge", "c"], description="Deletes all messages in this channel with confirmation (mod).")
 @commands.has_permissions(manage_messages=True)
 async def clear(ctx):
@@ -1394,8 +1433,8 @@ async def clear(ctx):
 @commands.has_permissions(administrator=True)
 async def roles(ctx):
     role_embed = discord.Embed(
-        title="Choose Your OS & Hardware", 
-        description="Select your preferred distributions and graphics drivers from the menus below.\n*(Note: You can select up to 2 OS roles across all menus for Dual-Boot configurations!)*", 
+        title="Choose Your OS & Hardware",
+        description="Select your preferred distributions and graphics drivers from the menus below.\n*(Note: You can select up to 2 OS roles across all menus for Dual-Boot configurations!)*",
         color=discord.Color.dark_theme()
     )
     await ctx.send(embed=role_embed, view=RolesView())
@@ -1552,10 +1591,10 @@ async def unban(ctx, user_id: int):
     except Exception as e:
         await ctx.send(f"❌ Failed to unban: {e}")
 
-# ======================================================================
-# STATS & CUSTOMIZATION COMMANDS
-# ======================================================================
-@bot.hybrid_command(name="stats", aliases=["st", "s", "sta", "profile", "rank", "lvl"], description="Shows a user's level and XP info.")
+# ==========================================
+# Stats: now font/color/background customizable, wide alias coverage
+# ==========================================
+@bot.hybrid_command(name="stats", aliases=["st", "s", "sta", "stat", "profile", "rank", "lvl"], description="Shows a user's level and XP info.")
 async def stats(ctx, member: discord.Member = None):
     if ctx.interaction:
         await ctx.defer()
@@ -1570,79 +1609,10 @@ async def stats(ctx, member: discord.Member = None):
     current_level = get_level_from_total_xp(current_xp)
     prev_level_xp = get_xp_requirement(current_level)
     next_level_xp = get_xp_requirement(current_level + 1)
-    xp_into_level = current_xp - prev_level_xp
-    xp_needed_for_level = next_level_xp - prev_level_xp 
-    percentage = min(max(xp_into_level / xp_needed_for_level, 0.0), 1.0) if xp_needed_for_level > 0 else 1.0
-    xp_remaining = max(next_level_xp - current_xp, 0)
 
-    custom = None
-    try:
-        custom = await customization_collection.find_one({"_id": member.id})
-    except Exception as e:
-        print(f"Customization lookup error: {e}")
-
-    if custom:
-        font_file = custom.get("font", DEFAULT_FONT)
-        bar_color = custom.get("bar_color", DEFAULT_BAR_COLOR)
-        bg_bytes = base64.b64decode(custom["bg_image_b64"]) if custom.get("bg_image_b64") else None
-        try:
-            card_bytes = await render_stats_card(member, current_xp, current_level, percentage, xp_remaining, font_file, bar_color, bg_bytes)
-            return await ctx.send(file=discord.File(fp=card_bytes, filename="stats.png"))
-        except Exception as e:
-            print(f"Stats card render error, falling back to embed: {e}")
-
-    bar_length = 10
-    filled_blocks = int(percentage * bar_length)
-    empty_blocks = bar_length - filled_blocks
-    progress_bar = "█" * filled_blocks + "░" * empty_blocks
-    embed = discord.Embed(title=f"📊 {member.name}'s Profile", color=discord.Color.purple())
-    embed.set_thumbnail(url=member.display_avatar.url)
-    embed.add_field(name="Current Level", value=f"`Level {current_level}`", inline=True)
-    embed.add_field(name="Total XP", value=f"`{current_xp} XP`", inline=True)
-    embed.add_field(name="Next Level At", value=f"`{next_level_xp} XP`", inline=True)
-    embed.add_field(name="XP Remaining", value=f"`{xp_remaining} XP`", inline=True)
-    embed.add_field(name="Progress", value=f"`[{progress_bar}] {int(percentage * 100)}%`", inline=False)
-    embed.set_footer(text="Tip: use ?customize to design your own stats card look.")
-    await ctx.send(embed=embed)
-
-@bot.hybrid_command(name="customize", aliases=["custom", "customise", "cz"], description="Personalize your stats card font, bar color and background.")
-async def customize(ctx, background: discord.Attachment = None):
-    existing = None
-    try:
-        existing = await customization_collection.find_one({"_id": ctx.author.id})
-    except Exception as e:
-        print(f"Customization lookup error: {e}")
-
-    font_file = existing.get("font", DEFAULT_FONT) if existing else DEFAULT_FONT
-    bar_color = existing.get("bar_color", DEFAULT_BAR_COLOR) if existing else DEFAULT_BAR_COLOR
-    bg_bytes = None
-    bg_ext = existing.get("bg_image_ext") if existing else None
-    if existing and existing.get("bg_image_b64"):
-        bg_bytes = base64.b64decode(existing["bg_image_b64"])
-
-    if background is not None:
-        ext = background.filename.rsplit(".", 1)[-1].lower() if "." in background.filename else ""
-        if ext not in ALLOWED_IMAGE_EXTENSIONS:
-            return await ctx.send("❌ Only `png`, `jpg`, `jpeg` or `webp` files are supported for backgrounds.")
-        try:
-            bg_bytes = await background.read()
-            bg_ext = ext
-        except Exception as e:
-            return await ctx.send(f"❌ Could not read that attachment: {e}")
-
-    view = CustomizeView(ctx.author.id, font_file, bar_color, bg_bytes, bg_ext)
-    embed = view.build_embed()
-
-    if ctx.interaction:
-        await ctx.send(embed=embed, view=view, ephemeral=True)
-        return
-
-    try:
-        await ctx.author.send(embed=embed, view=view)
-        if ctx.guild:
-            await ctx.send("📬 Check your DMs, I sent your customization menu there to keep it private.")
-    except discord.Forbidden:
-        await ctx.send(embed=embed, view=view)
+    custom = await get_user_customization(member.id)
+    file = await render_stats_card(member, current_xp, current_level, next_level_xp, prev_level_xp, custom)
+    await ctx.send(file=file)
 
 @bot.hybrid_command(name="leaderstats", aliases=["ls", "lstats", "top", "ldrst", "leaders"], description="Shows the top 15 most active users.")
 async def leaderstats(ctx):
@@ -1664,9 +1634,6 @@ async def leaderstats(ctx):
     except Exception as e:
         await ctx.send(f"❌ Error fetching leaderboard: {e}")
 
-# ======================================================================
-# FUN & UTILITY COMMANDS
-# ======================================================================
 @bot.hybrid_command(name="randomlinux", aliases=["rl", "linuxtip"], description="Shows a random Linux command and its description.")
 async def randomlinux(ctx):
     selected = random.choice(LINUX_COMMANDS)
@@ -1760,8 +1727,8 @@ async def diceroll(ctx, sides: int = 6):
 @bot.hybrid_command(name="8ball", aliases=["eightball", "magicball"], description="Ask the magic 8-ball.")
 async def magic_ball(ctx, *, question: str):
     responses = [
-        "It is certain.", "Without a doubt.", "Yes, definitely.", 
-        "Ask again later.", "Cannot predict right now.", 
+        "It is certain.", "Without a doubt.", "Yes, definitely.",
+        "Ask again later.", "Cannot predict right now.",
         "Don't count on it.", "My sources say no.", "Very doubtful."
     ]
     await ctx.send(f"🎱 **Question:** {question}\n**Answer:** {random.choice(responses)}")
@@ -1776,6 +1743,9 @@ async def gif(ctx):
     embed.set_image(url=random.choice(LINUX_GIFS))
     await ctx.send(embed=embed)
 
+# ==========================================
+# Neofetch-style user info
+# ==========================================
 @bot.hybrid_command(name="neofetch", aliases=["nf", "sysinfo"], description="Shows user and OS information in a neofetch style.")
 async def neofetch(ctx):
     user_role_ids = [r.id for r in ctx.author.roles]
@@ -2050,11 +2020,9 @@ async def neofetch(ctx):
         final_os = selected_bsd[0]
         final_ascii = selected_bsd[1]
 
-    # Check whether the user is a moderator
     is_mod = ctx.author.guild_permissions.manage_messages or ctx.author.guild_permissions.administrator
     auth_level = "/Root" if is_mod else "/User"
 
-    # Time elapsed since the user joined the server
     join_time = ctx.author.joined_at
     if join_time:
         now = datetime.datetime.now(datetime.timezone.utc)
@@ -2207,9 +2175,6 @@ async def uptime(ctx):
     embed.add_field(name="Uptime", value=f"`{days}d {hours}h {minutes}m {seconds}s`", inline=False)
     await ctx.send(embed=embed)
 
-# ======================================================================
-# HELP, SHORTCUTS & ERROR HANDLING
-# ======================================================================
 @bot.hybrid_command(name="shortcuts", aliases=["sc", "aliases"], description="Lists all command shortcuts.")
 async def shortcuts(ctx):
     embed = discord.Embed(
@@ -2232,8 +2197,8 @@ async def shortcuts(ctx):
     )
     embed.add_field(
         name="📊 Stats & Utilities",
-        value="`?stats` → `st`, `s`, `sta`, `profile`, `rank`, `lvl`\n"
-              "`?customize` → `custom`, `customise`, `cz`\n"
+        value="`?stats` → `st`, `s`, `sta`, `stat`, `profile`, `rank`, `lvl`\n"
+              "`?customize` → `cust`, `customise`\n"
               "`?leaderstats` → `ls`, `lstats`, `top`, `ldrst`, `leaders`\n"
               "`?serverinfo` → `sinfo`, `si`\n"
               "`?help` → `h`, `commands`, `cmds`\n"
@@ -2257,13 +2222,13 @@ async def shortcuts(ctx):
 @bot.hybrid_command(name="help", aliases=["h", "commands", "cmds"], description="Lists all bot commands.")
 async def help(ctx):
     embed = discord.Embed(
-        title="🐧 AdminPingu Command List", 
+        title="🐧 AdminPingu Command List",
         description="Every command works with **both** `?prefix` and `/slash`. Use `?shortcuts` to see every alias, "
                      "and don't worry about typing the full name — a close-enough shortcut usually gets auto-detected too.",
         color=discord.Color.dark_green()
     )
     embed.add_field(
-        name="🛡️ Moderation Commands", 
+        name="🛡️ Moderation Commands",
         value="`?roles` - Opens the role selection menu\n"
               "`?sudolock` / `?sudounlock` - Locks/Unlocks a text channel\n"
               "`?mute <user> [h]` / `?unmute <user>` - Manages timeouts\n"
@@ -2276,20 +2241,20 @@ async def help(ctx):
               "`?setjoinchannel` - Sets the channel for welcome banners\n"
               "`?messagesendadminpingu` - Sets the channel for the automated rules reminder\n"
               "`?fixlevels` - Recalculates everyone's level against the current XP curve\n"
-              "`?dbstatus` - Checks MongoDB connectivity and collection counts", 
+              "`?dbstatus` - Checks MongoDB connectivity and collection counts",
             inline=False
     )
     embed.add_field(
-        name="📊 Stats & Utilities", 
+        name="📊 Stats & Utilities",
         value="`?stats [user]` - View a user's level and XP\n"
-              "`?customize [image]` - Design your own stats card font, bar color and background\n"
+              "`?customize` - Personalize your stats card font, color and background\n"
               "`?leaderstats` - See the top 15 users in the server\n"
               "`?serverinfo` - Display information about this server\n"
-              "`?shortcuts` - See every command's short alias", 
+              "`?shortcuts` - See every command's short alias",
             inline=False
     )
     embed.add_field(
-        name="🎮 Fun & Random", 
+        name="🎮 Fun & Random",
         value="`?weather <city>` - Get the current weather\n"
               "`?randomlinux` / `?whoami` / `?pythontip` - Tech stuff\n"
               "`?neofetch` / `?cowsay <text>` / `?fortune` - Linux terminal fun\n"
@@ -2297,7 +2262,7 @@ async def help(ctx):
               "`?uptime` - How long the bot has been running\n"
               "`?tankfact` / `?mmafact` - Interesting facts\n"
               "`?tea` - Brew some tea for someone\n"
-              "`?coinflip` / `?diceroll` / `?8ball` / `?joke` / `?gif` - Minigames", 
+              "`?coinflip` / `?diceroll` / `?8ball` / `?joke` / `?gif` - Minigames",
             inline=False
     )
     embed.set_footer(text="Arguments in [brackets] are optional, <angle brackets> are required. Try /help too!")
@@ -2310,10 +2275,7 @@ async def on_command_error(ctx, error):
     elif isinstance(error, commands.MissingRequiredArgument):
         await ctx.send(f"❌ **Syntax Error:** You are missing some arguments! Check `?help` for usage.")
     else:
-        pass 
+        pass
 
-# ======================================================================
-# BOT START
-# ======================================================================
 keep_alive()
 bot.run(os.environ["DISCORD_TOKEN"])
