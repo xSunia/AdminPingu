@@ -2299,7 +2299,10 @@ except Exception as e:
     print(f"Gemini Client Init Error: {e}")
 
 # --- Config ---
-DISTRO_VS_CHANNEL_ID = 1521943611132874902
+# FIX: this used to be a hardcoded number, so the Render environment variable
+# was never actually read. Now it reads SURVEY_CHANNEL_ID from Render, and
+# falls back to the old hardcoded ID only if that env var isn't set.
+DISTRO_VS_CHANNEL_ID = int(os.environ.get("SURVEY_CHANNEL_ID", 1521943611132874902))
 
 TOP_50_DISTROS = [
     "Ubuntu", "Debian", "Fedora", "Arch Linux", "Linux Mint",
@@ -2360,7 +2363,9 @@ async def daily_distro_vs():
 
     channel = bot.get_channel(DISTRO_VS_CHANNEL_ID)
     if not channel:
-        print("Distro VS skipped: channel not found.")
+        print(f"Distro VS skipped: channel not found. Looking for ID {DISTRO_VS_CHANNEL_ID} "
+              f"(from SURVEY_CHANNEL_ID env var if set, otherwise the hardcoded fallback). "
+              f"Double-check this ID is correct and the bot has access to that channel.")
         return
 
     distro_a, distro_b = random.sample(TOP_50_DISTROS, 2)
