@@ -20,7 +20,10 @@ import sys
 from unidecode import unidecode
 from easy_pil import Editor, Canvas, Font, load_image_async
 from motor.motor_asyncio import AsyncIOMotorClient
-from PIL import Image
+from PIL import Image 
+from google import genai
+from google.genai import types
+
 
 app = Flask('')
 
@@ -2276,6 +2279,120 @@ async def on_command_error(ctx, error):
         await ctx.send(f"❌ **Syntax Error:** You are missing some arguments! Check `?help` for usage.")
     else:
         pass
+# =====================================================================
+# PASTE THIS ENTIRE BLOCK RIGHT BEFORE THE LAST LINE OF main.py
+# (the last line is usually something like: bot.run(os.environ["TOKEN"]))
+# Everything below is self-contained — it re-imports what it needs,
+# so it's safe to just drop it in as one chunk.
+# =====================================================================
 
+from google import genai
+from google.genai import types
+
+# --- Gemini client setup ---
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+try:
+    gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+except Exception as e:
+    gemini_client = None
+    print(f"Gemini Client Init Error: {e}")
+
+# --- Config ---
+DISTRO_VS_CHANNEL_ID = 1521943611132874902
+
+TOP_50_DISTROS = [
+    "Ubuntu", "Debian", "Fedora", "Arch Linux", "Linux Mint",
+    "openSUSE", "Manjaro", "Pop!_OS", "EndeavourOS", "Zorin OS",
+    "Kali Linux", "Elementary OS", "MX Linux", "Garuda Linux",
+    "Solus", "Void Linux", "Gentoo", "NixOS", "Slackware", "CentOS",
+    "Rocky Linux", "AlmaLinux", "Deepin", "Kubuntu", "Xubuntu",
+    "Lubuntu", "PCLinuxOS", "Peppermint OS", "antiX", "Puppy Linux",
+    "Tails", "Qubes OS", "Parrot OS", "BlackArch", "Artix Linux",
+    "CachyOS", "Nobara", "Bazzite", "Clear Linux", "Alpine Linux",
+    "OpenMandriva", "Mageia", "Feren OS", "KDE Neon", "Regolith Linux",
+    "SparkyLinux", "Bodhi Linux", "Q4OS", "Tiny Core Linux",
+    "Redcore Linux", "GhostBSD"
+]
+
+# --- Image generation (blocking call, runs in a worker thread) ---
+def _generate_distro_vs_image_sync(distro_a, distro_b):
+    prompt = (
+        f"An ultra-epic, cinematic 'VS' battle poster comparing the Linux "
+        f"distributions '{distro_a}' on the left and '{distro_b}' on the right. "
+        f"Dark futuristic sci-fi background with glowing neon blue and purple "
+        f"accents, dramatic lighting, digital/cyberpunk art style. Each side "
+        f"has a large stylized emblem or symbol representing that distro's "
+        f"identity and philosophy. Bold glowing 'VS' crack effect in the "
+        f"center splitting the two sides. Large bold text at the top showing "
+        f"the two distro names. A short catchy 2-4 word tagline under each "
+        f"logo describing that distro's core strength (e.g. speed, stability, "
+        f"security, minimalism, cutting-edge). Poster-quality, highly detailed, "
+        f"vertical composition, no watermarks."
+    )
+    response = gemini_client.models.generate_content(
+        model="gemini-2.5-flash-image",
+        contents=prompt,
+        config=types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"]),
+    )
+    for part in response.candidates[0].content.parts:
+        if part.inline_data:
+            return part.inline_data.data
+    return None
+
+async def generate_distro_vs_image(distro_a, distro_b):
+    loop = asyncio.get_running_loop()
+    try:
+        return await loop.run_in_executor(None, _generate_distro_vs_image_sync, distro_a, distro_b)
+    except Exception as e:
+        print(f"Distro VS image generation error: {e}")
+        return None
+
+# --- Daily task: runs once a day at a fixed UTC time ---
+# Change hour=15 to whatever UTC hour you want it to post at.
+@tasks.loop(time=datetime.time(hour=15, minute=0, tzinfo=datetime.timezone.utc))
+async def daily_distro_vs():
+    await bot.wait_until_ready()
+
+    if gemini_client is None:
+        print("Distro VS skipped: Gemini client not initialized (missing GEMINI_API_KEY?).")
+        return
+
+    channel = bot.get_channel(DISTRO_VS_CHANNEL_ID)
+    if not channel:
+        print("Distro VS skipped: channel not found.")
+        return
+
+    distro_a, distro_b = random.sample(TOP_50_DISTROS, 2)
+
+    image_bytes = await generate_distro_vs_image(distro_a, distro_b)
+    if not image_bytes:
+        print("Distro VS skipped: image generation failed.")
+        return
+
+    file = discord.File(io.BytesIO(image_bytes), filename="distro_vs.png")
+
+    embed = discord.Embed(
+        title="🐧 Daily Distro Showdown!",
+        description=(
+            f"⬅️ **{distro_a}**  🆚  **{distro_b}** ➡️\n\n"
+            f"Which one is better? React ⬅️ for the left, ➡️ for the right!"
+        ),
+        color=discord.Color.purple()
+    )
+    embed.set_image(url="attachment://distro_vs.png")
+    embed.set_footer(text="AdminPingu Daily Distro Showdown")
+
+    msg = await channel.send(embed=embed, file=file)
+    await msg.add_reaction("⬅️")
+    await msg.add_reaction("➡️")
+
+# --- Start the task loop right here (safe outside on_ready too, since
+# by this point in the file the bot object already exists) ---
+daily_distro_vs.start()
+
+# =====================================================================
+# END OF PASTED BLOCK — your original last line (bot.run(...)) goes
+# right after this.
+# =====================================================================
 keep_alive()
 bot.run(os.environ["DISCORD_TOKEN"])
