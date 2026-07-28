@@ -8,3 +8,4 @@ easy-pil>=0.7.1
 Pillow>=10.0.0
 motor>=3.3.2
 gunicorn
+google-genai
