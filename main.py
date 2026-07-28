@@ -645,6 +645,7 @@ async def on_ready():
     reset_daily_xp.start()
     daily_tech_news.start()
     sunday_xp_event.start()
+    daily_distro_vs.start()
     bot.add_view(RolesView())
     try:
         state = await load_event_state()
@@ -2386,9 +2387,7 @@ async def daily_distro_vs():
     await msg.add_reaction("⬅️")
     await msg.add_reaction("➡️")
 
-# --- Start the task loop right here (safe outside on_ready too, since
-# by this point in the file the bot object already exists) ---
-daily_distro_vs.start()
+
 
 # =====================================================================
 # END OF PASTED BLOCK — your original last line (bot.run(...)) goes
