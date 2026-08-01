@@ -2457,26 +2457,24 @@ async def on_command_error(ctx, error):
 #      survives bot restarts/redeploys automatically.
 #   2. A background task checks periodically. If 12 hours have passed since
 #      the last post (or nothing has ever been posted), it picks 2 random
-#      distros out of the top 60, generates an epic "VS" poster with Gemini,
-#      posts it with ⬅️ / ➡️ voting reactions, and saves the new "last sent"
-#      timestamp to MongoDB.
+#      distros out of the top 60, generates an epic "VS" poster with
+#      Hugging Face's FLUX.1-schnell model, posts it with ⬅️ / ➡️ voting
+#      reactions, and saves the new "last sent" timestamp to MongoDB.
 #   3. Because the "last sent" timestamp is also in MongoDB, a bot restart
 #      never causes an extra/duplicate post — if a message already went out
 #      less than 12h ago, the task just waits out the remainder next tick.
 # (The duplicate `from google import genai` import was removed here since
 # it's already imported once at the top of the file.)
 
-# --- Gemini client setup ---
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-print(f"Gemini key loaded from env: {'yes, length ' + str(len(GEMINI_API_KEY)) if GEMINI_API_KEY else 'NO — GEMINI_API_KEY is missing/empty!'}", flush=True)
-try:
-    gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-    print("Gemini client initialized OK.", flush=True)
-except Exception as e:
-    gemini_client = None
-    print(f"Gemini Client Init Error: {e}", flush=True)
-    traceback.print_exc()
-    sys.stdout.flush()
+# --- Hugging Face Inference token setup ---
+# Add this env var wherever you configure the bot's environment (Railway/
+# Render/.env/etc):
+#   HF_TOKEN = <your free Hugging Face access token>
+# Get one at https://huggingface.co/settings/tokens (a plain "Read" token is
+# enough — no billing/credit card needed). Used to call FLUX.1-schnell via
+# HF's free Inference Providers router below.
+HF_TOKEN = os.environ.get("HF_TOKEN")
+print(f"HF token loaded from env: {'yes, length ' + str(len(HF_TOKEN)) if HF_TOKEN else 'NO — HF_TOKEN is missing/empty!'}", flush=True)
 
 # How often the background task WAKES UP to check whether it's time to post.
 # This is just the "check interval", not the posting interval — the actual
@@ -2536,12 +2534,16 @@ async def update_distro_vs_last_sent(timestamp):
     except Exception as e:
         print(f"Distro VS last_sent save error: {e}")
 
-# --- Image generation via Pollinations.ai (free, keyless — no billing needed) ---
+# --- Image generation via Hugging Face Inference Providers (FLUX.1-schnell) ---
 # Switched away from Gemini's gemini-2.5-flash-image model because Google does
 # not offer any free quota for image generation (limit: 0 on the free tier,
-# confirmed via 429 RESOURCE_EXHAUSTED errors in production logs). Pollinations
-# requires no API key/account/billing at all — just an HTTP GET request.
-import urllib.parse
+# confirmed via 429 RESOURCE_EXHAUSTED errors in production logs). Also
+# switched away from Pollinations.ai because its "flux" model routing was
+# frequently ignoring the prompt and returning unrelated images. FLUX.1-schnell
+# through HF's Inference Providers is a proper open-weight model that follows
+# the prompt closely, is free, and only needs a no-cost HF access token (see
+# HF_TOKEN above) — no credit card. Free tier is rate-limited but comfortably
+# covers "1 image every 12 hours".
 
 def _build_distro_vs_prompt(distro_a, distro_b):
     # This prompt is intentionally very detailed/opinionated: it pushes the
@@ -2587,31 +2589,81 @@ def _build_distro_vs_prompt(distro_a, distro_b):
         f"trading-card-game box art."
     )
 
+# HF Inference Providers endpoint (the modern replacement for the old
+# api-inference.huggingface.co URLs). "hf-inference" here is the provider —
+# HF's own free-tier infrastructure — not a separate paid third party.
+HF_FLUX_MODEL = "black-forest-labs/FLUX.1-schnell"
+HF_INFERENCE_URL = f"https://router.huggingface.co/hf-inference/models/{HF_FLUX_MODEL}"
+
+# If the free model is asleep/cold, HF returns 503 with an "estimated_time"
+# to wake it up. We retry a couple of times instead of giving up immediately,
+# since a showdown is only posted once every 12h so it's worth the wait.
+HF_MAX_RETRIES = 3
+
 async def generate_distro_vs_image(distro_a, distro_b):
-    """Generates a Distro VS poster via Pollinations.ai's free keyless image
-    endpoint. No API key, no billing, no signup required."""
+    """Generates a Distro VS poster via Hugging Face's free Inference
+    Providers API, using the FLUX.1-schnell model. Needs HF_TOKEN set in the
+    environment (free token, no billing) — see the HF_TOKEN comment above."""
+    if not HF_TOKEN:
+        print("Distro VS image generation error: HF_TOKEN env var is not set. "
+              "Get a free token at https://huggingface.co/settings/tokens.", flush=True)
+        return None
+
     prompt = _build_distro_vs_prompt(distro_a, distro_b)
-    encoded_prompt = urllib.parse.quote(prompt, safe="")
-    # width/height: tall poster aspect ratio to match the original vertical
-    # composition. nologo=true strips the Pollinations watermark. A fixed
-    # random `seed` isn't set, so each call yields a fresh matchup image.
-    url = (
-        f"https://image.pollinations.ai/prompt/{encoded_prompt}"
-        f"?width=1024&height=1536&nologo=true&model=flux"
-    )
+    headers = {
+        "Authorization": f"Bearer {HF_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "inputs": prompt,
+        "parameters": {
+            # Tall poster aspect ratio, matching the original composition.
+            "width": 1024,
+            "height": 1536,
+            # schnell is a distilled/"turbo" model: it's tuned for a small
+            # number of steps and guidance_scale 0, more steps don't help.
+            "num_inference_steps": 4,
+        },
+    }
+
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=120)) as resp:
-                if resp.status != 200:
+            for attempt in range(1, HF_MAX_RETRIES + 1):
+                async with session.post(
+                    HF_INFERENCE_URL, headers=headers, json=payload,
+                    timeout=aiohttp.ClientTimeout(total=120)
+                ) as resp:
+                    content_type = resp.headers.get("Content-Type", "")
+
+                    if resp.status == 200 and content_type.startswith("image/"):
+                        image_bytes = await resp.read()
+                        if image_bytes:
+                            return image_bytes
+                        print("Distro VS image generation error: Hugging Face returned an empty image.", flush=True)
+                        return None
+
+                    # Model still loading / cold-starting — HF suggests a wait time.
+                    if resp.status == 503:
+                        body = await resp.json(content_type=None)
+                        wait_s = min(float(body.get("estimated_time", 15)), 30)
+                        print(f"Distro VS: HF model is warming up, retrying in {wait_s:.0f}s "
+                              f"(attempt {attempt}/{HF_MAX_RETRIES})...", flush=True)
+                        await asyncio.sleep(wait_s)
+                        continue
+
+                    if resp.status == 429:
+                        print("Distro VS image generation error: Hugging Face rate limit hit "
+                              "(free tier). Will just skip this cycle.", flush=True)
+                        return None
+
                     body_snippet = (await resp.text())[:300]
-                    print(f"Distro VS image generation error: Pollinations returned "
+                    print(f"Distro VS image generation error: Hugging Face returned "
                           f"HTTP {resp.status}: {body_snippet}", flush=True)
                     return None
-                image_bytes = await resp.read()
-                if not image_bytes:
-                    print("Distro VS image generation error: Pollinations returned an empty response.", flush=True)
-                    return None
-                return image_bytes
+
+            print("Distro VS image generation error: HF model never finished warming up "
+                  "after retries.", flush=True)
+            return None
     except Exception as e:
         print(f"Distro VS image generation error: {type(e).__name__}: {e}", flush=True)
         traceback.print_exc()
@@ -2629,7 +2681,7 @@ async def send_distro_vs_showdown(channel):
 
     image_bytes = await generate_distro_vs_image(distro_a, distro_b)
     if not image_bytes:
-        print("Distro VS skipped: image generation failed (check GEMINI_API_KEY validity/quota). "
+        print("Distro VS skipped: image generation failed (check HF_TOKEN validity/quota). "
               "See the 'Distro VS image generation error' line above for the exact cause.", flush=True)
         return False
 
