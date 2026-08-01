@@ -2476,6 +2476,20 @@ async def on_command_error(ctx, error):
 HF_TOKEN = os.environ.get("HF_TOKEN")
 print(f"HF token loaded from env: {'yes, length ' + str(len(HF_TOKEN)) if HF_TOKEN else 'NO — HF_TOKEN is missing/empty!'}", flush=True)
 
+# We use the official huggingface_hub client instead of hand-rolling the raw
+# HTTP route, because HF's Inference Providers routing changes over time
+# (e.g. FLUX.1-schnell was pulled from the "hf-inference" provider on
+# 2026-07-15/16 — see https://discuss.huggingface.co/t/177901). provider="auto"
+# means HF picks whichever partner (fal, together, nebius, etc.) currently
+# serves the model on your account's free/included credits, and keeps working
+# automatically if that changes again in the future.
+try:
+    from huggingface_hub import InferenceClient
+    hf_client = InferenceClient(api_key=HF_TOKEN, provider="auto") if HF_TOKEN else None
+except Exception as e:
+    hf_client = None
+    print(f"HF InferenceClient init error: {e}", flush=True)
+
 # How often the background task WAKES UP to check whether it's time to post.
 # This is just the "check interval", not the posting interval — the actual
 # posting cadence is controlled by DISTRO_VS_INTERVAL_SECONDS below.
@@ -2545,6 +2559,8 @@ async def update_distro_vs_last_sent(timestamp):
 # HF_TOKEN above) — no credit card. Free tier is rate-limited but comfortably
 # covers "1 image every 12 hours".
 
+HF_FLUX_MODEL = "black-forest-labs/FLUX.1-schnell"
+
 def _build_distro_vs_prompt(distro_a, distro_b):
     # This prompt is intentionally very detailed/opinionated: it pushes the
     # image model toward the same "epic mythic poster" style as the reference
@@ -2589,81 +2605,37 @@ def _build_distro_vs_prompt(distro_a, distro_b):
         f"trading-card-game box art."
     )
 
-# HF Inference Providers endpoint (the modern replacement for the old
-# api-inference.huggingface.co URLs). "hf-inference" here is the provider —
-# HF's own free-tier infrastructure — not a separate paid third party.
-HF_FLUX_MODEL = "black-forest-labs/FLUX.1-schnell"
-HF_INFERENCE_URL = f"https://router.huggingface.co/hf-inference/models/{HF_FLUX_MODEL}"
-
-# If the free model is asleep/cold, HF returns 503 with an "estimated_time"
-# to wake it up. We retry a couple of times instead of giving up immediately,
-# since a showdown is only posted once every 12h so it's worth the wait.
-HF_MAX_RETRIES = 3
-
 async def generate_distro_vs_image(distro_a, distro_b):
-    """Generates a Distro VS poster via Hugging Face's free Inference
-    Providers API, using the FLUX.1-schnell model. Needs HF_TOKEN set in the
-    environment (free token, no billing) — see the HF_TOKEN comment above."""
-    if not HF_TOKEN:
-        print("Distro VS image generation error: HF_TOKEN env var is not set. "
-              "Get a free token at https://huggingface.co/settings/tokens.", flush=True)
+    """Generates a Distro VS poster via Hugging Face's Inference Providers,
+    using the FLUX.1-schnell model with automatic provider selection. Needs
+    HF_TOKEN set in the environment (free token, no billing) — see the
+    HF_TOKEN comment above."""
+    if not hf_client:
+        print("Distro VS image generation error: HF_TOKEN env var is not set "
+              "(or the HF client failed to initialize). Get a free token at "
+              "https://huggingface.co/settings/tokens.", flush=True)
         return None
 
     prompt = _build_distro_vs_prompt(distro_a, distro_b)
-    headers = {
-        "Authorization": f"Bearer {HF_TOKEN}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "inputs": prompt,
-        "parameters": {
-            # Tall poster aspect ratio, matching the original composition.
-            "width": 1024,
-            "height": 1536,
-            # schnell is a distilled/"turbo" model: it's tuned for a small
-            # number of steps and guidance_scale 0, more steps don't help.
-            "num_inference_steps": 4,
-        },
-    }
 
     try:
-        async with aiohttp.ClientSession() as session:
-            for attempt in range(1, HF_MAX_RETRIES + 1):
-                async with session.post(
-                    HF_INFERENCE_URL, headers=headers, json=payload,
-                    timeout=aiohttp.ClientTimeout(total=120)
-                ) as resp:
-                    content_type = resp.headers.get("Content-Type", "")
-
-                    if resp.status == 200 and content_type.startswith("image/"):
-                        image_bytes = await resp.read()
-                        if image_bytes:
-                            return image_bytes
-                        print("Distro VS image generation error: Hugging Face returned an empty image.", flush=True)
-                        return None
-
-                    # Model still loading / cold-starting — HF suggests a wait time.
-                    if resp.status == 503:
-                        body = await resp.json(content_type=None)
-                        wait_s = min(float(body.get("estimated_time", 15)), 30)
-                        print(f"Distro VS: HF model is warming up, retrying in {wait_s:.0f}s "
-                              f"(attempt {attempt}/{HF_MAX_RETRIES})...", flush=True)
-                        await asyncio.sleep(wait_s)
-                        continue
-
-                    if resp.status == 429:
-                        print("Distro VS image generation error: Hugging Face rate limit hit "
-                              "(free tier). Will just skip this cycle.", flush=True)
-                        return None
-
-                    body_snippet = (await resp.text())[:300]
-                    print(f"Distro VS image generation error: Hugging Face returned "
-                          f"HTTP {resp.status}: {body_snippet}", flush=True)
-                    return None
-
-            print("Distro VS image generation error: HF model never finished warming up "
-                  "after retries.", flush=True)
+        # InferenceClient is a blocking/sync client, so run it in a thread to
+        # avoid stalling the bot's event loop. Returns a PIL.Image on success.
+        image = await asyncio.to_thread(
+            hf_client.text_to_image,
+            prompt,
+            model=HF_FLUX_MODEL,
+            width=1024,
+            height=1536,
+            num_inference_steps=4,  # schnell is distilled for ~4 steps; more doesn't help.
+        )
+        buf = io.BytesIO()
+        image.save(buf, format="PNG")
+        image_bytes = buf.getvalue()
+        if not image_bytes:
+            print("Distro VS image generation error: Hugging Face returned an empty image.", flush=True)
             return None
+        return image_bytes
     except Exception as e:
         print(f"Distro VS image generation error: {type(e).__name__}: {e}", flush=True)
         traceback.print_exc()
