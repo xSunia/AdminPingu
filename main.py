@@ -1523,6 +1523,64 @@ async def clear(ctx):
     except Exception as e:
         await ctx.send(f"❌ Error during purge: {e}")
 
+@bot.hybrid_command(
+    name="undo",
+    aliases=["undohistory", "cleanbotmsgs"],
+    description="Deletes AdminPingu's own recent messages in THIS channel and reports what was removed (mod)."
+)
+@commands.has_permissions(manage_messages=True)
+async def undo(ctx, amount: int = 50):
+    """Scoped ONLY to the channel this is run in — scans the last `amount`
+    messages in this channel, deletes every one that AdminPingu itself sent,
+    and posts a report of exactly what got removed. Useful for wiping old/
+    outdated automated posts (e.g. the old Distro Showdown format) from a
+    channel without touching any other channel or any human messages."""
+    amount = max(1, min(amount, 200))
+
+    def is_bot_message(m):
+        return m.author.id == bot.user.id
+
+    try:
+        deleted = await ctx.channel.purge(limit=amount, check=is_bot_message)
+    except discord.Forbidden:
+        return await ctx.send("❌ I don't have permission to delete messages in this channel.")
+    except Exception as e:
+        return await ctx.send(f"❌ Error while undoing: {e}")
+
+    if not deleted:
+        return await ctx.send(
+            f"ℹ️ No AdminPingu messages found to undo in {ctx.channel.mention} "
+            f"(checked the last {amount} messages here)."
+        )
+
+    report_lines = []
+    for m in reversed(deleted):  # oldest -> newest in the report
+        if m.embeds and m.embeds[0].title:
+            snippet = m.embeds[0].title
+        elif m.content:
+            snippet = m.content
+        elif m.embeds and m.embeds[0].description:
+            snippet = m.embeds[0].description
+        else:
+            snippet = "[attachment / other content]"
+        snippet = snippet.replace("\n", " ")[:60]
+        ts = m.created_at.strftime("%Y-%m-%d %H:%M UTC")
+        report_lines.append(f"• `{ts}` — {snippet}")
+
+    shown = report_lines[:25]
+    remainder_note = f"\n…and {len(report_lines) - 25} more not shown." if len(report_lines) > 25 else ""
+
+    embed = discord.Embed(
+        title="↩️ Undo Complete",
+        description=(
+            f"Removed **{len(deleted)}** AdminPingu message(s) from {ctx.channel.mention} only "
+            f"(no other channel was touched).\n\n**Removed messages:**\n"
+            + "\n".join(shown) + remainder_note
+        ),
+        color=discord.Color.orange()
+    )
+    await ctx.send(embed=embed)
+
 @bot.hybrid_command(name="roles", aliases=["osroles", "distro"], description="Opens the OS/GPU role selection menu (admin).")
 @commands.has_permissions(administrator=True)
 async def roles(ctx):
@@ -2006,6 +2064,18 @@ async def neofetch(ctx):
         r"                      ",
         r"                      "
     ]
+    # CachyOS's real logo is a stylized flowing chevron/arrow mark — this
+    # ASCII approximation captures that shape instead of reusing Arch's plain
+    # triangle, so it's actually recognizable as CachyOS in ?neofetch.
+    CACHYOS_ASCII = [
+        r"     _______          ",
+        r"    /   __  \         ",
+        r"   /   /  \  \        ",
+        r"   \   \__/  /        ",
+        r"    \_______/         ",
+        r"     \  __  /         ",
+        r"      \/  \/          "
+    ]
     WIN11_ASCII = [
         r"  #######   #######   ",
         r"  #######   #######   ",
@@ -2050,7 +2120,7 @@ async def neofetch(ctx):
         1521871074994950295: ("Garuda Linux", ARCH_ASCII),
         1521871078308184074: ("Artix Linux", ARTIX_ASCII),
         1522137195102867526: ("Black Arch", ARCH_ASCII),
-        1522143963904081920: ("CachyOS", ARCH_ASCII),
+        1522143963904081920: ("CachyOS", CACHYOS_ASCII),
         1521870173861056655: ("Debian", DEBIAN_ASCII),
         1521870110552227910: ("Ubuntu", UBUNTU_ASCII),
         1521868791942742026: ("Linux Mint", MINT_ASCII),
@@ -2284,6 +2354,7 @@ async def shortcuts(ctx):
               "`?sudolock` → `lock` | `?sudounlock` → `unlock`\n"
               "`?mute` → `m`, `timeout` | `?unmute` → `um`\n"
               "`?clear` → `purge`, `c`\n"
+              "`?undo` → `undohistory`, `cleanbotmsgs`\n"
               "`?warning` → `warn` | `?warnings` → `warns`, `w`\n"
               "`?clearwarnings` → `cw`, `clwarns`\n"
               "`?ban` → `b` | `?unban` → `ub`\n"
@@ -2329,6 +2400,7 @@ async def help(ctx):
               "`?sudolock` / `?sudounlock` - Locks/Unlocks a text channel\n"
               "`?mute <user> [h]` / `?unmute <user>` - Manages timeouts\n"
               "`?clear` - Mass deletes messages in a channel\n"
+              "`?undo [amount]` - Deletes AdminPingu's own recent messages in this channel only, with a report\n"
               "`?warning <user> [reason]` - Gives a user a warning\n"
               "`?warnings <user>` - Shows a user's warning history\n"
               "`?clearwarnings <user>` - Resets a user's warnings to 0\n"
@@ -2520,13 +2592,51 @@ async def generate_distro_vs_image(distro_a, distro_b):
         print(f"Distro VS image generation error: {e}")
         return None
 
+# --- Core send logic, shared between the recurring task AND the instant
+#     first-post triggered by ?setdistrochannel ---
+async def send_distro_vs_showdown(channel):
+    """Generates one Distro VS poster and posts it to `channel`.
+    Returns True on success, False on failure. Always updates last_sent
+    on success so the 12h cooldown restarts from this exact post."""
+    if gemini_client is None:
+        print("Distro VS skipped: Gemini client not initialized (missing GEMINI_API_KEY?).")
+        return False
+
+    distro_a, distro_b = random.sample(TOP_60_DISTROS, 2)
+
+    image_bytes = await generate_distro_vs_image(distro_a, distro_b)
+    if not image_bytes:
+        print("Distro VS skipped: image generation failed (check GEMINI_API_KEY validity/quota).")
+        return False
+
+    file = discord.File(io.BytesIO(image_bytes), filename="distro_vs.png")
+
+    embed = discord.Embed(
+        title="⚔️ Distro Showdown!",
+        description=(
+            f"⬅️ **{distro_a}**  🆚  **{distro_b}** ➡️\n\n"
+            f"Which one reigns supreme? React ⬅️ for **{distro_a}**, "
+            f"➡️ for **{distro_b}**! A new showdown drops every 12 hours."
+        ),
+        color=discord.Color.purple()
+    )
+    embed.set_image(url="attachment://distro_vs.png")
+    embed.set_footer(text="AdminPingu Distro Showdown")
+
+    msg = await channel.send(embed=embed, file=file)
+    await msg.add_reaction("⬅️")
+    await msg.add_reaction("➡️")
+
+    # Persist immediately so a restart right after this never causes a re-send.
+    await update_distro_vs_last_sent(time.time())
+    return True
+
 # --- Background task: checks every 15 minutes, posts every ~12 hours ---
 @tasks.loop(minutes=DISTRO_VS_CHECK_INTERVAL_MINUTES)
 async def daily_distro_vs():
     await bot.wait_until_ready()
 
     if gemini_client is None:
-        print("Distro VS skipped: Gemini client not initialized (missing GEMINI_API_KEY?).")
         return
 
     config = await load_distro_vs_config()
@@ -2549,33 +2659,7 @@ async def daily_distro_vs():
         # send a duplicate right away.
         return
 
-    distro_a, distro_b = random.sample(TOP_60_DISTROS, 2)
-
-    image_bytes = await generate_distro_vs_image(distro_a, distro_b)
-    if not image_bytes:
-        print("Distro VS skipped: image generation failed (check GEMINI_API_KEY validity/quota).")
-        return
-
-    file = discord.File(io.BytesIO(image_bytes), filename="distro_vs.png")
-
-    embed = discord.Embed(
-        title="⚔️ Distro Showdown!",
-        description=(
-            f"⬅️ **{distro_a}**  🆚  **{distro_b}** ➡️\n\n"
-            f"Which one reigns supreme? React ⬅️ for **{distro_a}**, "
-            f"➡️ for **{distro_b}**! A new showdown drops every 12 hours."
-        ),
-        color=discord.Color.purple()
-    )
-    embed.set_image(url="attachment://distro_vs.png")
-    embed.set_footer(text="AdminPingu Distro Showdown")
-
-    msg = await channel.send(embed=embed, file=file)
-    await msg.add_reaction("⬅️")
-    await msg.add_reaction("➡️")
-
-    # Persist immediately so a restart right after this never causes a re-send.
-    await update_distro_vs_last_sent(now)
+    await send_distro_vs_showdown(channel)
 
 # ==========================================
 # Admin command: configure the Distro VS channel
@@ -2591,17 +2675,31 @@ async def setdistrochannel(ctx, channel: discord.TextChannel = None):
     saved = await set_distro_vs_channel(target_channel.id)
     if not saved:
         return await ctx.send("❌ Couldn't save that channel to the database. Check `?dbstatus` and try again.")
+
     embed = discord.Embed(
         title="⚔️ Distro VS Channel Set",
         description=(
             f"{target_channel.mention} is now the official **Distro Showdown** channel.\n\n"
             f"A new AI-generated matchup between 2 random distros (out of the top 60) will be "
             f"posted here roughly **every 12 hours**, complete with ⬅️/➡️ voting reactions. "
-            f"This setting is saved permanently, so it survives bot restarts."
+            f"This setting is saved permanently, so it survives bot restarts.\n\n"
+            f"🎬 Generating your first showdown right now..."
         ),
         color=discord.Color.purple()
     )
     await ctx.send(embed=embed)
+
+    # FIX: previously the very first showdown only appeared once the
+    # background task happened to tick (up to 15 minutes later). Now setting
+    # the channel fires an immediate showdown right away, then the recurring
+    # task takes over from there and posts every ~12 hours after this one.
+    sent = await send_distro_vs_showdown(target_channel)
+    if not sent:
+        await ctx.send(
+            "⚠️ The instant showdown failed to generate (likely an invalid/expired `GEMINI_API_KEY` "
+            "or exhausted quota — check the Render logs for `Distro VS skipped: ...`). "
+            "The channel is still saved, so it'll keep retrying automatically every 15 minutes."
+        )
 
 # =====================================================================
 # Final startup
