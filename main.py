@@ -2445,7 +2445,9 @@ async def on_command_error(ctx, error):
     elif isinstance(error, commands.MissingRequiredArgument):
         await ctx.send(f"❌ **Syntax Error:** You are missing some arguments! Check `?help` for usage.")
     else:
-        pass
+        print(f"Unhandled command error in '{ctx.command}': {type(error).__name__}: {error}", flush=True)
+        traceback.print_exc()
+        sys.stdout.flush()
 # =====================================================================
 # DISTRO VS — AI-generated Linux distro showdown poster system
 # =====================================================================
@@ -2466,11 +2468,15 @@ async def on_command_error(ctx, error):
 
 # --- Gemini client setup ---
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+print(f"Gemini key loaded from env: {'yes, length ' + str(len(GEMINI_API_KEY)) if GEMINI_API_KEY else 'NO — GEMINI_API_KEY is missing/empty!'}", flush=True)
 try:
     gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+    print("Gemini client initialized OK.", flush=True)
 except Exception as e:
     gemini_client = None
-    print(f"Gemini Client Init Error: {e}")
+    print(f"Gemini Client Init Error: {e}", flush=True)
+    traceback.print_exc()
+    sys.stdout.flush()
 
 # How often the background task WAKES UP to check whether it's time to post.
 # This is just the "check interval", not the posting interval — the actual
@@ -2589,7 +2595,9 @@ async def generate_distro_vs_image(distro_a, distro_b):
     try:
         return await loop.run_in_executor(None, _generate_distro_vs_image_sync, distro_a, distro_b)
     except Exception as e:
-        print(f"Distro VS image generation error: {e}")
+        print(f"Distro VS image generation error: {type(e).__name__}: {e}", flush=True)
+        traceback.print_exc()
+        sys.stdout.flush()
         return None
 
 # --- Core send logic, shared between the recurring task AND the instant
@@ -2599,14 +2607,16 @@ async def send_distro_vs_showdown(channel):
     Returns True on success, False on failure. Always updates last_sent
     on success so the 12h cooldown restarts from this exact post."""
     if gemini_client is None:
-        print("Distro VS skipped: Gemini client not initialized (missing GEMINI_API_KEY?).")
+        print("Distro VS skipped: Gemini client not initialized (missing GEMINI_API_KEY?).", flush=True)
         return False
 
     distro_a, distro_b = random.sample(TOP_60_DISTROS, 2)
+    print(f"Distro VS: attempting matchup '{distro_a}' vs '{distro_b}'...", flush=True)
 
     image_bytes = await generate_distro_vs_image(distro_a, distro_b)
     if not image_bytes:
-        print("Distro VS skipped: image generation failed (check GEMINI_API_KEY validity/quota).")
+        print("Distro VS skipped: image generation failed (check GEMINI_API_KEY validity/quota). "
+              "See the 'Distro VS image generation error' line above for the exact cause.", flush=True)
         return False
 
     file = discord.File(io.BytesIO(image_bytes), filename="distro_vs.png")
@@ -2648,7 +2658,7 @@ async def daily_distro_vs():
     channel = bot.get_channel(channel_id)
     if not channel:
         print(f"Distro VS skipped: channel {channel_id} not found or bot has no access to it. "
-              f"Double-check the channel still exists and re-run ?setdistrochannel if needed.")
+              f"Double-check the channel still exists and re-run ?setdistrochannel if needed.", flush=True)
         return
 
     last_sent = config.get("last_sent")
