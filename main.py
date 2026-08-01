@@ -2536,13 +2536,19 @@ async def update_distro_vs_last_sent(timestamp):
     except Exception as e:
         print(f"Distro VS last_sent save error: {e}")
 
-# --- Image generation (blocking call, runs in a worker thread) ---
-def _generate_distro_vs_image_sync(distro_a, distro_b):
-    # This prompt is intentionally very detailed/opinionated: it pushes Gemini
-    # toward the same "epic mythic poster" style as the reference screenshots
-    # (bold clashing philosophies, ornate bottom banner, dramatic emblem art)
-    # instead of a plain generic "vs" graphic.
-    prompt = (
+# --- Image generation via Pollinations.ai (free, keyless — no billing needed) ---
+# Switched away from Gemini's gemini-2.5-flash-image model because Google does
+# not offer any free quota for image generation (limit: 0 on the free tier,
+# confirmed via 429 RESOURCE_EXHAUSTED errors in production logs). Pollinations
+# requires no API key/account/billing at all — just an HTTP GET request.
+import urllib.parse
+
+def _build_distro_vs_prompt(distro_a, distro_b):
+    # This prompt is intentionally very detailed/opinionated: it pushes the
+    # image model toward the same "epic mythic poster" style as the reference
+    # screenshots (bold clashing philosophies, ornate bottom banner, dramatic
+    # emblem art) instead of a plain generic "vs" graphic.
+    return (
         f"An ultra-epic, jaw-dropping, cinematic 'VS' battle poster comparing the "
         f"Linux distributions '{distro_a}' on the left side and '{distro_b}' on the "
         f"right side. Style: dramatic fantasy/sci-fi hybrid digital art, moody "
@@ -2580,20 +2586,32 @@ def _generate_distro_vs_image_sync(distro_a, distro_b):
         f"shareable at a glance, matching the energy of a movie poster or a "
         f"trading-card-game box art."
     )
-    response = gemini_client.models.generate_content(
-        model="gemini-2.5-flash-image",
-        contents=prompt,
-        config=types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"]),
-    )
-    for part in response.candidates[0].content.parts:
-        if part.inline_data:
-            return part.inline_data.data
-    return None
 
 async def generate_distro_vs_image(distro_a, distro_b):
-    loop = asyncio.get_running_loop()
+    """Generates a Distro VS poster via Pollinations.ai's free keyless image
+    endpoint. No API key, no billing, no signup required."""
+    prompt = _build_distro_vs_prompt(distro_a, distro_b)
+    encoded_prompt = urllib.parse.quote(prompt, safe="")
+    # width/height: tall poster aspect ratio to match the original vertical
+    # composition. nologo=true strips the Pollinations watermark. A fixed
+    # random `seed` isn't set, so each call yields a fresh matchup image.
+    url = (
+        f"https://image.pollinations.ai/prompt/{encoded_prompt}"
+        f"?width=1024&height=1536&nologo=true&model=flux"
+    )
     try:
-        return await loop.run_in_executor(None, _generate_distro_vs_image_sync, distro_a, distro_b)
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=120)) as resp:
+                if resp.status != 200:
+                    body_snippet = (await resp.text())[:300]
+                    print(f"Distro VS image generation error: Pollinations returned "
+                          f"HTTP {resp.status}: {body_snippet}", flush=True)
+                    return None
+                image_bytes = await resp.read()
+                if not image_bytes:
+                    print("Distro VS image generation error: Pollinations returned an empty response.", flush=True)
+                    return None
+                return image_bytes
     except Exception as e:
         print(f"Distro VS image generation error: {type(e).__name__}: {e}", flush=True)
         traceback.print_exc()
@@ -2606,10 +2624,6 @@ async def send_distro_vs_showdown(channel):
     """Generates one Distro VS poster and posts it to `channel`.
     Returns True on success, False on failure. Always updates last_sent
     on success so the 12h cooldown restarts from this exact post."""
-    if gemini_client is None:
-        print("Distro VS skipped: Gemini client not initialized (missing GEMINI_API_KEY?).", flush=True)
-        return False
-
     distro_a, distro_b = random.sample(TOP_60_DISTROS, 2)
     print(f"Distro VS: attempting matchup '{distro_a}' vs '{distro_b}'...", flush=True)
 
@@ -2645,9 +2659,6 @@ async def send_distro_vs_showdown(channel):
 @tasks.loop(minutes=DISTRO_VS_CHECK_INTERVAL_MINUTES)
 async def daily_distro_vs():
     await bot.wait_until_ready()
-
-    if gemini_client is None:
-        return
 
     config = await load_distro_vs_config()
     if not config or not config.get("channel_id"):
@@ -2706,8 +2717,8 @@ async def setdistrochannel(ctx, channel: discord.TextChannel = None):
     sent = await send_distro_vs_showdown(target_channel)
     if not sent:
         await ctx.send(
-            "⚠️ The instant showdown failed to generate (likely an invalid/expired `GEMINI_API_KEY` "
-            "or exhausted quota — check the Render logs for `Distro VS skipped: ...`). "
+            "⚠️ The instant showdown failed to generate (the free Pollinations.ai image service may be "
+            "temporarily overloaded or slow — check the Render logs for `Distro VS image generation error: ...`). "
             "The channel is still saved, so it'll keep retrying automatically every 15 minutes."
         )
 
