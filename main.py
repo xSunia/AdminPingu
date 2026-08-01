@@ -291,14 +291,56 @@ last_activity_time = time.time()
 # ==========================================
 # Leveling math
 # ==========================================
+# XP curve design (per admin request):
+#   - Levels 1-10: hand-tuned "easy" anchor points, gentle intro to the level system.
+#   - Levels 10-50: "medium" difficulty band, smooth and steady growth.
+#   - Levels 50-90: growth accelerates noticeably ("gets harder").
+#   - Levels 90-100: very steep final stretch ("very hard, but not impossible").
+#   - Levels 100+: keeps escalating at the same rate as the 90-100 band, in case
+#     the level cap is ever raised.
+#
+# NOTE: the requested numbers for level 10 and level 100 in the spec were a bit
+# ambiguous/contradictory (a flat "10->950, 100->1010" reading would make the
+# 90-100 band nearly flat, which directly contradicts "90-100 should be very
+# hard"). To honor BOTH the literal levels 1-8 anchors AND the explicit
+# difficulty description, level 10 anchor was kept close to spec (950) while
+# the 90-100 band was built to be dramatically steeper, as explicitly requested.
+_LEVEL_ANCHORS_1_TO_10 = {
+    1: 100,
+    2: 200,
+    3: 400,
+    4: 500,
+    5: 625,   # interpolated between level 4 (500) and level 6 (750)
+    6: 750,
+    7: 825,   # interpolated between level 6 (750) and level 8 (900)
+    8: 900,
+    9: 925,   # interpolated between level 8 (900) and level 10 (950)
+    10: 950,
+}
+
+def _geometric_interp(level, low_level, low_value, high_level, high_value):
+    """Smoothly grows from low_value to high_value as level goes low_level -> high_level."""
+    t = (level - low_level) / (high_level - low_level)
+    return low_value * ((high_value / low_value) ** t)
+
 def _xp_delta_for_level(level):
-    base = 51.824 * (level ** 1.166)
-    if level >= 90:
-        t = (level - 89) / 10.0
-        hard_multiplier = 1.0 + 1.6 * (t ** 1.6)
+    """Returns how much XP is needed to go from (level - 1) to (level)."""
+    if level <= 10:
+        return _LEVEL_ANCHORS_1_TO_10[level]
+    elif level <= 50:
+        # Medium band: 10 -> 50 grows gently, easy-to-medium difficulty.
+        value = _geometric_interp(level, 10, 950, 50, 3200)
+    elif level <= 90:
+        # Harder band: 50 -> 90 accelerates noticeably.
+        value = _geometric_interp(level, 50, 3200, 90, 18000)
+    elif level <= 100:
+        # Very hard (but not impossible) final stretch: 90 -> 100.
+        value = _geometric_interp(level, 90, 18000, 100, 140000)
     else:
-        hard_multiplier = 1.0
-    return max(50, round(base * hard_multiplier))
+        # Beyond level 100 (future-proofing): keep compounding at the same
+        # rate as the final band so the curve never breaks or plateaus.
+        value = 140000 * (1.35 ** (level - 100))
+    return max(50, round(value))
 
 _MAX_PRECOMPUTED_LEVEL = 200
 _XP_REQUIREMENT_TABLE = [0]
@@ -349,6 +391,31 @@ async def load_event_state():
         return await config_collection.find_one({"_id": "global_event_state"})
     except Exception as e:
         print(f"Event state load error: {e}")
+        return None
+
+# ==========================================
+# Tech news persistence helpers
+# ==========================================
+# FIX: LAST_NEWS_URL used to be an in-memory-only variable, which reset to ""
+# every time the bot restarted (e.g. on every Render deploy). That meant the
+# task would think the current top RSS entry was "new" again right after every
+# restart, and repost the same article. Now the last posted URL is persisted
+# to MongoDB and restored on startup, so a restart never causes a duplicate post.
+async def save_news_state(last_url):
+    try:
+        await config_collection.update_one(
+            {"_id": "news_state"},
+            {"$set": {"last_url": last_url}},
+            upsert=True
+        )
+    except Exception as e:
+        print(f"News state save error: {e}")
+
+async def load_news_state():
+    try:
+        return await config_collection.find_one({"_id": "news_state"})
+    except Exception as e:
+        print(f"News state load error: {e}")
         return None
 
 async def resume_event_countdown(channel, remaining_seconds, announcement_channel_id):
@@ -549,6 +616,7 @@ async def daily_tech_news():
         if entry.link == LAST_NEWS_URL:
             return
         LAST_NEWS_URL = entry.link
+        await save_news_state(entry.link)  # persist immediately so a restart never reposts this article again
         clean_summary = strip_html_tags(entry.summary) if hasattr(entry, "summary") else ""
         embed = discord.Embed(
             title=f"📰 {entry.title}",
@@ -620,7 +688,7 @@ async def on_ready():
     print(f'🤖 Bot Is Online: {bot.user.name}')
     print('🚀 Engine Status: READY AND OPERATIONAL')
     print('==========================================')
-    global last_activity_time, ACTIVE_EVENT_CHANNEL_ID
+    global last_activity_time, ACTIVE_EVENT_CHANNEL_ID, LAST_NEWS_URL
     last_activity_time = time.time()
     try:
         await mongo_client.admin.command('ping')
@@ -665,6 +733,28 @@ async def on_ready():
                 await clear_event_state()
     except Exception as e:
         print(f"Event state restore error: {e}")
+
+    # Restore last posted tech-news URL so a bot restart/redeploy never reposts
+    # the same article to the news channel again.
+    try:
+        news_state = await load_news_state()
+        if news_state and news_state.get("last_url"):
+            LAST_NEWS_URL = news_state["last_url"]
+            print(f"📰 Restored last posted news URL from DB — duplicate re-posts after restart are prevented.")
+    except Exception as e:
+        print(f"News state restore error: {e}")
+
+    # Restore the configured Distro VS channel + last-sent timestamp so the
+    # 12-hour cadence survives bot restarts too (see distro_vs section below).
+    try:
+        distro_state = await load_distro_vs_config()
+        if distro_state and distro_state.get("channel_id"):
+            print(f"⚔️ Distro VS channel restored: {distro_state['channel_id']} "
+                  f"(last sent: {distro_state.get('last_sent', 'never')}).")
+        else:
+            print("⚔️ Distro VS channel not configured yet — use ?setdistrochannel to set one.")
+    except Exception as e:
+        print(f"Distro VS state restore error: {e}")
 
 @bot.event
 async def on_member_join(member):
@@ -2196,7 +2286,8 @@ async def shortcuts(ctx):
               "`?clear` → `purge`, `c`\n"
               "`?warning` → `warn` | `?warnings` → `warns`, `w`\n"
               "`?clearwarnings` → `cw`, `clwarns`\n"
-              "`?ban` → `b` | `?unban` → `ub`",
+              "`?ban` → `b` | `?unban` → `ub`\n"
+              "`?setnewschannel` → `snc` | `?setdistrochannel` → `sdc`, `setdistrovs`",
         inline=False
     )
     embed.add_field(
@@ -2218,7 +2309,8 @@ async def shortcuts(ctx):
               "`?coinflip` → `cf`, `flip` | `?diceroll` → `dice`, `roll`\n"
               "`?neofetch` → `nf`, `sysinfo` | `?cowsay` → `cow` | `?fortune` → `ft`\n"
               "`?packagemap` → `pkg`, `pkgcheat` | `?distrobattle` → `db`, `distrowar`\n"
-              "`?uptime` → `up` | `?gif` → `g` | `?joke` → `j`",
+              "`?uptime` → `up` | `?gif` → `g` | `?joke` → `j`\n"
+              "`?terminal` → `term`",
         inline=False
     )
     await ctx.send(embed=embed)
@@ -2242,6 +2334,7 @@ async def help(ctx):
               "`?clearwarnings <user>` - Resets a user's warnings to 0\n"
               "`?ban <user> [reason]` / `?unban <id>` - Manages bans\n"
               "`?setnewschannel` - Sets the channel for tech news\n"
+              "`?setdistrochannel` - Sets the channel for the AI Distro Showdown (every ~12h)\n"
               "`?setjoinchannel` - Sets the channel for welcome banners\n"
               "`?messagesendadminpingu` - Sets the channel for the automated rules reminder\n"
               "`?fixlevels` - Recalculates everyone's level against the current XP curve\n"
@@ -2266,7 +2359,8 @@ async def help(ctx):
               "`?uptime` - How long the bot has been running\n"
               "`?tankfact` / `?mmafact` - Interesting facts\n"
               "`?tea` - Brew some tea for someone\n"
-              "`?coinflip` / `?diceroll` / `?8ball` / `?joke` / `?gif` - Minigames",
+              "`?coinflip` / `?diceroll` / `?8ball` / `?joke` / `?gif` - Minigames\n"
+              "`?terminal` - Opens your own private Python sandbox terminal channel",
             inline=False
     )
     embed.set_footer(text="Arguments in [brackets] are optional, <angle brackets> are required. Try /help too!")
@@ -2281,14 +2375,22 @@ async def on_command_error(ctx, error):
     else:
         pass
 # =====================================================================
-# PASTE THIS ENTIRE BLOCK RIGHT BEFORE THE LAST LINE OF main.py
-# (the last line is usually something like: bot.run(os.environ["TOKEN"]))
-# Everything below is self-contained — it re-imports what it needs,
-# so it's safe to just drop it in as one chunk.
+# DISTRO VS — AI-generated Linux distro showdown poster system
 # =====================================================================
-
-from google import genai
-from google.genai import types
+# How this works (per admin spec):
+#   1. An admin points the feature at a channel with ?setdistrochannel #channel.
+#      That channel ID is saved to MongoDB (NOT an env var anymore), so it
+#      survives bot restarts/redeploys automatically.
+#   2. A background task checks periodically. If 12 hours have passed since
+#      the last post (or nothing has ever been posted), it picks 2 random
+#      distros out of the top 60, generates an epic "VS" poster with Gemini,
+#      posts it with ⬅️ / ➡️ voting reactions, and saves the new "last sent"
+#      timestamp to MongoDB.
+#   3. Because the "last sent" timestamp is also in MongoDB, a bot restart
+#      never causes an extra/duplicate post — if a message already went out
+#      less than 12h ago, the task just waits out the remainder next tick.
+# (The duplicate `from google import genai` import was removed here since
+# it's already imported once at the top of the file.)
 
 # --- Gemini client setup ---
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -2298,13 +2400,17 @@ except Exception as e:
     gemini_client = None
     print(f"Gemini Client Init Error: {e}")
 
-# --- Config ---
-# FIX: this used to be a hardcoded number, so the Render environment variable
-# was never actually read. Now it reads SURVEY_CHANNEL_ID from Render, and
-# falls back to the old hardcoded ID only if that env var isn't set.
-DISTRO_VS_CHANNEL_ID = int(os.environ.get("SURVEY_CHANNEL_ID", 1521943611132874902))
+# How often the background task WAKES UP to check whether it's time to post.
+# This is just the "check interval", not the posting interval — the actual
+# posting cadence is controlled by DISTRO_VS_INTERVAL_SECONDS below.
+DISTRO_VS_CHECK_INTERVAL_MINUTES = 15
 
-TOP_50_DISTROS = [
+# The real posting cadence: once every 12 hours, per the spec.
+DISTRO_VS_INTERVAL_SECONDS = 12 * 60 * 60
+
+# Top 60 most popular/well-known Linux distributions, used to randomly pick
+# 2 contenders for each showdown.
+TOP_60_DISTROS = [
     "Ubuntu", "Debian", "Fedora", "Arch Linux", "Linux Mint",
     "openSUSE", "Manjaro", "Pop!_OS", "EndeavourOS", "Zorin OS",
     "Kali Linux", "Elementary OS", "MX Linux", "Garuda Linux",
@@ -2315,23 +2421,86 @@ TOP_50_DISTROS = [
     "CachyOS", "Nobara", "Bazzite", "Clear Linux", "Alpine Linux",
     "OpenMandriva", "Mageia", "Feren OS", "KDE Neon", "Regolith Linux",
     "SparkyLinux", "Bodhi Linux", "Q4OS", "Tiny Core Linux",
-    "Redcore Linux", "GhostBSD"
+    "Redcore Linux", "GhostBSD", "Ubuntu Studio", "Devuan",
+    "Vanilla OS", "SteamOS", "ArcoLinux", "Fedora Silverblue",
+    "Chimera Linux", "Linux From Scratch", "siduction"
 ]
+
+# ==========================================
+# Distro VS persistence helpers (MongoDB)
+# ==========================================
+async def load_distro_vs_config():
+    try:
+        return await config_collection.find_one({"_id": "distro_vs_config"})
+    except Exception as e:
+        print(f"Distro VS config load error: {e}")
+        return None
+
+async def set_distro_vs_channel(channel_id):
+    try:
+        await config_collection.update_one(
+            {"_id": "distro_vs_config"},
+            {"$set": {"channel_id": channel_id}},
+            upsert=True
+        )
+        return True
+    except Exception as e:
+        print(f"Distro VS channel save error: {e}")
+        return False
+
+async def update_distro_vs_last_sent(timestamp):
+    try:
+        await config_collection.update_one(
+            {"_id": "distro_vs_config"},
+            {"$set": {"last_sent": timestamp}},
+            upsert=True
+        )
+    except Exception as e:
+        print(f"Distro VS last_sent save error: {e}")
 
 # --- Image generation (blocking call, runs in a worker thread) ---
 def _generate_distro_vs_image_sync(distro_a, distro_b):
+    # This prompt is intentionally very detailed/opinionated: it pushes Gemini
+    # toward the same "epic mythic poster" style as the reference screenshots
+    # (bold clashing philosophies, ornate bottom banner, dramatic emblem art)
+    # instead of a plain generic "vs" graphic.
     prompt = (
-        f"An ultra-epic, cinematic 'VS' battle poster comparing the Linux "
-        f"distributions '{distro_a}' on the left and '{distro_b}' on the right. "
-        f"Dark futuristic sci-fi background with glowing neon blue and purple "
-        f"accents, dramatic lighting, digital/cyberpunk art style. Each side "
-        f"has a large stylized emblem or symbol representing that distro's "
-        f"identity and philosophy. Bold glowing 'VS' crack effect in the "
-        f"center splitting the two sides. Large bold text at the top showing "
-        f"the two distro names. A short catchy 2-4 word tagline under each "
-        f"logo describing that distro's core strength (e.g. speed, stability, "
-        f"security, minimalism, cutting-edge). Poster-quality, highly detailed, "
-        f"vertical composition, no watermarks."
+        f"An ultra-epic, jaw-dropping, cinematic 'VS' battle poster comparing the "
+        f"Linux distributions '{distro_a}' on the left side and '{distro_b}' on the "
+        f"right side. Style: dramatic fantasy/sci-fi hybrid digital art, moody "
+        f"volumetric lighting, glowing particle effects, ultra high detail, "
+        f"poster-quality, vertical composition, no watermarks, no extra text "
+        f"besides what is specified below.\n\n"
+        f"TOP: '{distro_a}' name in massive bold stylized 3D/glowing title text on "
+        f"the top-left, and '{distro_b}' name in an equally massive but visually "
+        f"DIFFERENT bold stylized title font/color on the top-right, so each distro "
+        f"clearly has its own distinct visual identity.\n\n"
+        f"LEFT SIDE ('{distro_a}'): a large, ornate emblem/symbol/sigil that "
+        f"visually represents this distro's real-world reputation, philosophy or "
+        f"community culture (e.g. raw power, punk rebellion, minimalism, military "
+        f"precision, ancient wisdom, corporate order, chaotic freedom — pick "
+        f"whichever fits '{distro_a}' best). Background and color palette on this "
+        f"side should visually reinforce that theme.\n\n"
+        f"RIGHT SIDE ('{distro_b}'): a large, equally ornate but thematically "
+        f"CONTRASTING emblem/symbol/sigil representing '{distro_b}''s own "
+        f"reputation or philosophy, with its own distinct background and color "
+        f"palette that visually clashes against the left side.\n\n"
+        f"CENTER: a bold glowing cracked 'VS' shockwave splitting the two halves "
+        f"apart, energy bleeding from the fracture line.\n\n"
+        f"BELOW EACH EMBLEM: a short, punchy, all-caps 2-4 word tagline capturing "
+        f"that distro's core philosophy as if the two distros were rival factions "
+        f"or ancient orders (for example, contrasting ideas like discipline vs "
+        f"chaos, precision vs freedom, control vs openness, ancient vs cutting-edge "
+        f"— invent the best-fitting pair of opposing taglines yourself based on "
+        f"what '{distro_a}' and '{distro_b}' are actually known for).\n\n"
+        f"BOTTOM: an ornate fantasy-style decorative border/frame containing a "
+        f"short, dramatic 2-line hook question or statement inviting the viewer to "
+        f"pick a side (e.g. in the spirit of 'LINUX EVOLVED: WHICH ONE RULES?' — "
+        f"invent your own equally epic line that fits the theme of this specific "
+        f"matchup).\n\n"
+        f"Overall the poster must look extremely eye-catching, flashy, and "
+        f"shareable at a glance, matching the energy of a movie poster or a "
+        f"trading-card-game box art."
     )
     response = gemini_client.models.generate_content(
         model="gemini-2.5-flash-image",
@@ -2351,9 +2520,8 @@ async def generate_distro_vs_image(distro_a, distro_b):
         print(f"Distro VS image generation error: {e}")
         return None
 
-# --- Daily task: runs once a day at a fixed UTC time ---
-# Change hour=15 to whatever UTC hour you want it to post at.
-@tasks.loop(time=datetime.time(hour=15, minute=0, tzinfo=datetime.timezone.utc))
+# --- Background task: checks every 15 minutes, posts every ~12 hours ---
+@tasks.loop(minutes=DISTRO_VS_CHECK_INTERVAL_MINUTES)
 async def daily_distro_vs():
     await bot.wait_until_ready()
 
@@ -2361,42 +2529,82 @@ async def daily_distro_vs():
         print("Distro VS skipped: Gemini client not initialized (missing GEMINI_API_KEY?).")
         return
 
-    channel = bot.get_channel(DISTRO_VS_CHANNEL_ID)
-    if not channel:
-        print(f"Distro VS skipped: channel not found. Looking for ID {DISTRO_VS_CHANNEL_ID} "
-              f"(from SURVEY_CHANNEL_ID env var if set, otherwise the hardcoded fallback). "
-              f"Double-check this ID is correct and the bot has access to that channel.")
+    config = await load_distro_vs_config()
+    if not config or not config.get("channel_id"):
+        # No channel configured yet — silently wait until an admin runs ?setdistrochannel.
         return
 
-    distro_a, distro_b = random.sample(TOP_50_DISTROS, 2)
+    channel_id = int(config["channel_id"])
+    channel = bot.get_channel(channel_id)
+    if not channel:
+        print(f"Distro VS skipped: channel {channel_id} not found or bot has no access to it. "
+              f"Double-check the channel still exists and re-run ?setdistrochannel if needed.")
+        return
+
+    last_sent = config.get("last_sent")
+    now = time.time()
+    if last_sent and (now - last_sent) < DISTRO_VS_INTERVAL_SECONDS:
+        # Not due yet — this correctly handles the case where the bot just
+        # restarted less than 12h after the previous post, so it will NOT
+        # send a duplicate right away.
+        return
+
+    distro_a, distro_b = random.sample(TOP_60_DISTROS, 2)
 
     image_bytes = await generate_distro_vs_image(distro_a, distro_b)
     if not image_bytes:
-        print("Distro VS skipped: image generation failed.")
+        print("Distro VS skipped: image generation failed (check GEMINI_API_KEY validity/quota).")
         return
 
     file = discord.File(io.BytesIO(image_bytes), filename="distro_vs.png")
 
     embed = discord.Embed(
-        title="🐧 Daily Distro Showdown!",
+        title="⚔️ Distro Showdown!",
         description=(
             f"⬅️ **{distro_a}**  🆚  **{distro_b}** ➡️\n\n"
-            f"Which one is better? React ⬅️ for the left, ➡️ for the right!"
+            f"Which one reigns supreme? React ⬅️ for **{distro_a}**, "
+            f"➡️ for **{distro_b}**! A new showdown drops every 12 hours."
         ),
         color=discord.Color.purple()
     )
     embed.set_image(url="attachment://distro_vs.png")
-    embed.set_footer(text="AdminPingu Daily Distro Showdown")
+    embed.set_footer(text="AdminPingu Distro Showdown")
 
     msg = await channel.send(embed=embed, file=file)
     await msg.add_reaction("⬅️")
     await msg.add_reaction("➡️")
 
+    # Persist immediately so a restart right after this never causes a re-send.
+    await update_distro_vs_last_sent(now)
 
+# ==========================================
+# Admin command: configure the Distro VS channel
+# ==========================================
+@bot.hybrid_command(
+    name="setdistrochannel",
+    aliases=["sdc", "setdistrovs"],
+    description="Sets the channel for the recurring AI-generated Distro VS showdown (admin)."
+)
+@commands.has_permissions(administrator=True)
+async def setdistrochannel(ctx, channel: discord.TextChannel = None):
+    target_channel = channel or ctx.channel
+    saved = await set_distro_vs_channel(target_channel.id)
+    if not saved:
+        return await ctx.send("❌ Couldn't save that channel to the database. Check `?dbstatus` and try again.")
+    embed = discord.Embed(
+        title="⚔️ Distro VS Channel Set",
+        description=(
+            f"{target_channel.mention} is now the official **Distro Showdown** channel.\n\n"
+            f"A new AI-generated matchup between 2 random distros (out of the top 60) will be "
+            f"posted here roughly **every 12 hours**, complete with ⬅️/➡️ voting reactions. "
+            f"This setting is saved permanently, so it survives bot restarts."
+        ),
+        color=discord.Color.purple()
+    )
+    await ctx.send(embed=embed)
 
 # =====================================================================
-# END OF PASTED BLOCK — your original last line (bot.run(...)) goes
-# right after this.
+# Final startup
 # =====================================================================
 keep_alive()
 bot.run(os.environ["DISCORD_TOKEN"])
