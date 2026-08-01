@@ -9,3 +9,4 @@ Pillow>=10.0.0
 motor>=3.3.2
 gunicorn
 google-genai
+huggingface_hub>=0.28.0
