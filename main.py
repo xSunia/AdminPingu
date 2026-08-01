@@ -20,7 +20,7 @@ import sys
 from unidecode import unidecode
 from easy_pil import Editor, Canvas, Font, load_image_async
 from motor.motor_asyncio import AsyncIOMotorClient
-from PIL import Image 
+from PIL import Image, ImageDraw, ImageFont
 from google import genai
 from google.genai import types
 
@@ -2516,6 +2516,65 @@ TOP_60_DISTROS = [
     "Chimera Linux", "Linux From Scratch", "siduction"
 ]
 
+# Curated 2-4 word taglines per distro, based on real-world reputation/
+# philosophy. Used to draw the "philosophy" caption under each side of the
+# poster ourselves (see DISTRO_VS text-overlay code below) instead of asking
+# the image model to render text — diffusion models like FLUX.1-schnell are
+# notoriously bad at spelling out text, so we draw it with Pillow instead for
+# guaranteed-crisp typography.
+DISTRO_TAGLINES = {
+    "Ubuntu": "MASS ADOPTION", "Debian": "ANCIENT STABILITY",
+    "Fedora": "BLEEDING INNOVATION", "Arch Linux": "PURE POWER",
+    "Linux Mint": "GENTLE COMFORT", "openSUSE": "ENGINEERED PRECISION",
+    "Manjaro": "ROLLING FREEDOM", "Pop!_OS": "MAKER'S FORGE",
+    "EndeavourOS": "ARCH SIMPLIFIED", "Zorin OS": "FAMILIAR DISGUISE",
+    "Kali Linux": "OFFENSIVE EDGE", "Elementary OS": "DESIGNED ELEGANCE",
+    "MX Linux": "LIGHTWEIGHT GRIT", "Garuda Linux": "AGGRESSIVE FLAIR",
+    "Solus": "INDEPENDENT VISION", "Void Linux": "MINIMALIST CONTROL",
+    "Gentoo": "SOURCE UNBOUND", "NixOS": "PURE SCIENCE",
+    "Slackware": "OLD GUARD", "CentOS": "ENTERPRISE LEGACY",
+    "Rocky Linux": "COMMUNITY REBUILT", "AlmaLinux": "STEADY FOUNDATION",
+    "Deepin": "AESTHETIC HARMONY", "Kubuntu": "PLASMA POLISH",
+    "Xubuntu": "XFCE EFFICIENCY", "Lubuntu": "FEATHERWEIGHT SPEED",
+    "PCLinuxOS": "VETERAN SIMPLICITY", "Peppermint OS": "CLOUD-LIGHT LIVING",
+    "antiX": "SYSTEMD DEFIANCE", "Puppy Linux": "TINY RESILIENCE",
+    "Tails": "GHOST PROTOCOL", "Qubes OS": "COMPARTMENTED TRUST",
+    "Parrot OS": "SHADOW OPERATIONS", "BlackArch": "ARSENAL OVERLOAD",
+    "Artix Linux": "INIT REBELLION", "CachyOS": "PERFORMANCE OBSESSED",
+    "Nobara": "GAMER'S EDGE", "Bazzite": "IMMUTABLE PLAYGROUND",
+    "Clear Linux": "OPTIMIZED VELOCITY", "Alpine Linux": "MINIMAL FORTRESS",
+    "OpenMandriva": "EUROPEAN CRAFT", "Mageia": "COMMUNITY HERITAGE",
+    "Feren OS": "POLISHED NEWCOMER", "KDE Neon": "BLEEDING PLASMA",
+    "Regolith Linux": "TILING DISCIPLINE", "SparkyLinux": "LIGHTWEIGHT SPARK",
+    "Bodhi Linux": "ENLIGHTENED MINIMALISM", "Q4OS": "RETRO EFFICIENCY",
+    "Tiny Core Linux": "MICRO ESSENCE", "Redcore Linux": "GENTOO SIMPLIFIED",
+    "GhostBSD": "BSD SERENITY", "Ubuntu Studio": "CREATIVE ARSENAL",
+    "Devuan": "INIT FREEDOM", "Vanilla OS": "IMMUTABLE FUTURE",
+    "SteamOS": "LIVING ROOM CONQUEST", "ArcoLinux": "LEARN BY BUILDING",
+    "Fedora Silverblue": "ATOMIC RELIABILITY", "Chimera Linux": "HYBRID EXPERIMENT",
+    "Linux From Scratch": "BUILD EVERYTHING", "siduction": "DEBIAN UNLEASHED",
+}
+DEFAULT_TAGLINE = "UNKNOWN POWER"
+
+# Rotating pool of bottom-banner hook lines (drawn ourselves, see below).
+DISTRO_VS_HOOK_LINES = [
+    "LINUX EVOLVED: WHICH ONE RULES?",
+    "TWO PHILOSOPHIES. ONE THRONE.",
+    "DISTROS COLLIDE: PICK YOUR SIDE.",
+    "ONLY ONE CAN BOOT SUPREME.",
+    "CHOOSE YOUR KERNEL. CHOOSE YOUR FATE.",
+    "THE PACKAGE WARS CONTINUE.",
+    "WHICH PHILOSOPHY WINS TONIGHT?",
+    "ONE ROOTFS TO RULE THEM ALL.",
+]
+
+# Contrasting (left-color, right-color) pairs, picked at random per matchup
+# for visual variety in the title/tagline text.
+DISTRO_VS_COLOR_PAIRS = [
+    ("#37e6ff", "#ff3b3b"), ("#a566ff", "#ffd23b"), ("#39ff88", "#ff2079"),
+    ("#ffb238", "#3b82ff"), ("#ff5fdb", "#5fffb0"), ("#ffe15f", "#7b5fff"),
+]
+
 # ==========================================
 # Distro VS persistence helpers (MongoDB)
 # ==========================================
@@ -2562,21 +2621,18 @@ async def update_distro_vs_last_sent(timestamp):
 HF_FLUX_MODEL = "black-forest-labs/FLUX.1-schnell"
 
 def _build_distro_vs_prompt(distro_a, distro_b):
-    # This prompt is intentionally very detailed/opinionated: it pushes the
-    # image model toward the same "epic mythic poster" style as the reference
-    # screenshots (bold clashing philosophies, ornate bottom banner, dramatic
-    # emblem art) instead of a plain generic "vs" graphic.
+    # IMPORTANT: this prompt intentionally asks for ZERO text/typography.
+    # FLUX.1-schnell (like most diffusion models) is unreliable at spelling
+    # out words — it tends to render garbled, misspelled pseudo-text. So we
+    # only ask the model for the symbolic/emblematic ARTWORK, and draw all
+    # titles, taglines and the hook line ourselves with Pillow afterwards
+    # (see _compose_distro_vs_poster below) for guaranteed-crisp typography.
     return (
-        f"An ultra-epic, jaw-dropping, cinematic 'VS' battle poster comparing the "
-        f"Linux distributions '{distro_a}' on the left side and '{distro_b}' on the "
-        f"right side. Style: dramatic fantasy/sci-fi hybrid digital art, moody "
-        f"volumetric lighting, glowing particle effects, ultra high detail, "
-        f"poster-quality, vertical composition, no watermarks, no extra text "
-        f"besides what is specified below.\n\n"
-        f"TOP: '{distro_a}' name in massive bold stylized 3D/glowing title text on "
-        f"the top-left, and '{distro_b}' name in an equally massive but visually "
-        f"DIFFERENT bold stylized title font/color on the top-right, so each distro "
-        f"clearly has its own distinct visual identity.\n\n"
+        f"An ultra-epic, jaw-dropping, cinematic dual-emblem battle artwork "
+        f"comparing the Linux distributions '{distro_a}' on the left side and "
+        f"'{distro_b}' on the right side. Style: dramatic fantasy/sci-fi hybrid "
+        f"digital art, moody volumetric lighting, glowing particle effects, "
+        f"ultra high detail, poster-quality, vertical composition.\n\n"
         f"LEFT SIDE ('{distro_a}'): a large, ornate emblem/symbol/sigil that "
         f"visually represents this distro's real-world reputation, philosophy or "
         f"community culture (e.g. raw power, punk rebellion, minimalism, military "
@@ -2587,29 +2643,25 @@ def _build_distro_vs_prompt(distro_a, distro_b):
         f"CONTRASTING emblem/symbol/sigil representing '{distro_b}''s own "
         f"reputation or philosophy, with its own distinct background and color "
         f"palette that visually clashes against the left side.\n\n"
-        f"CENTER: a bold glowing cracked 'VS' shockwave splitting the two halves "
-        f"apart, energy bleeding from the fracture line.\n\n"
-        f"BELOW EACH EMBLEM: a short, punchy, all-caps 2-4 word tagline capturing "
-        f"that distro's core philosophy as if the two distros were rival factions "
-        f"or ancient orders (for example, contrasting ideas like discipline vs "
-        f"chaos, precision vs freedom, control vs openness, ancient vs cutting-edge "
-        f"— invent the best-fitting pair of opposing taglines yourself based on "
-        f"what '{distro_a}' and '{distro_b}' are actually known for).\n\n"
-        f"BOTTOM: an ornate fantasy-style decorative border/frame containing a "
-        f"short, dramatic 2-line hook question or statement inviting the viewer to "
-        f"pick a side (e.g. in the spirit of 'LINUX EVOLVED: WHICH ONE RULES?' — "
-        f"invent your own equally epic line that fits the theme of this specific "
-        f"matchup).\n\n"
-        f"Overall the poster must look extremely eye-catching, flashy, and "
+        f"CENTER: a bold glowing cracked energy shockwave/fracture splitting the "
+        f"two halves apart, energy bleeding from the fracture line.\n\n"
+        f"Overall the artwork must look extremely eye-catching, flashy, and "
         f"shareable at a glance, matching the energy of a movie poster or a "
-        f"trading-card-game box art."
+        f"trading-card-game box art.\n\n"
+        f"CRITICAL: do NOT include any text, letters, words, numbers, logos, "
+        f"watermarks, or typography anywhere in the image — pure symbolic/"
+        f"emblematic artwork only, no writing of any kind. All titles and labels "
+        f"will be added separately afterwards."
     )
 
 async def generate_distro_vs_image(distro_a, distro_b):
     """Generates a Distro VS poster via Hugging Face's Inference Providers,
     using the FLUX.1-schnell model with automatic provider selection. Needs
     HF_TOKEN set in the environment (free token, no billing) — see the
-    HF_TOKEN comment above."""
+    HF_TOKEN comment above. The model only generates the background/emblem
+    ARTWORK (no text — see _build_distro_vs_prompt); all titles, taglines and
+    the hook line are drawn afterwards with Pillow via
+    _compose_distro_vs_poster, so text is always crisp instead of garbled."""
     if not hf_client:
         print("Distro VS image generation error: HF_TOKEN env var is not set "
               "(or the HF client failed to initialize). Get a free token at "
@@ -2621,7 +2673,7 @@ async def generate_distro_vs_image(distro_a, distro_b):
     try:
         # InferenceClient is a blocking/sync client, so run it in a thread to
         # avoid stalling the bot's event loop. Returns a PIL.Image on success.
-        image = await asyncio.to_thread(
+        art_image = await asyncio.to_thread(
             hf_client.text_to_image,
             prompt,
             model=HF_FLUX_MODEL,
@@ -2629,18 +2681,122 @@ async def generate_distro_vs_image(distro_a, distro_b):
             height=1536,
             num_inference_steps=4,  # schnell is distilled for ~4 steps; more doesn't help.
         )
-        buf = io.BytesIO()
-        image.save(buf, format="PNG")
-        image_bytes = buf.getvalue()
-        if not image_bytes:
-            print("Distro VS image generation error: Hugging Face returned an empty image.", flush=True)
-            return None
-        return image_bytes
     except Exception as e:
         print(f"Distro VS image generation error: {type(e).__name__}: {e}", flush=True)
         traceback.print_exc()
         sys.stdout.flush()
         return None
+
+    try:
+        # Compositing (Pillow text drawing) is CPU-bound, run off the event loop.
+        return await asyncio.to_thread(_compose_distro_vs_poster, art_image, distro_a, distro_b)
+    except Exception as e:
+        print(f"Distro VS poster compositing error: {type(e).__name__}: {e}", flush=True)
+        traceback.print_exc()
+        sys.stdout.flush()
+        return None
+
+# ==========================================
+# Distro VS poster text compositing (Pillow)
+# ==========================================
+# We draw all typography ourselves instead of trusting the image model with
+# it, since diffusion models reliably botch rendered text. Reuses the same
+# bundled fonts/ directory + get_font_path() helper as the /customize feature
+# defined earlier in this file.
+
+def _distro_vs_font(filename, size):
+    path = get_font_path(filename)
+    if path:
+        try:
+            return ImageFont.truetype(path, size)
+        except Exception:
+            pass
+    return ImageFont.load_default()
+
+def _distro_vs_fit_font(text, filename, start_size, max_width, min_size=28):
+    """Shrinks the font size until `text` fits within max_width (handles long
+    distro names like 'Fedora Silverblue' or 'Tiny Core Linux')."""
+    size = start_size
+    while size > min_size:
+        font = _distro_vs_font(filename, size)
+        if font.getlength(text) <= max_width:
+            return font
+        size -= 4
+    return _distro_vs_font(filename, min_size)
+
+def _distro_vs_wrap_text(text, font, max_width):
+    words = text.split()
+    lines, current = [], ""
+    for word in words:
+        test = f"{current} {word}".strip()
+        if not current or font.getlength(test) <= max_width:
+            current = test
+        else:
+            lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return lines
+
+def _compose_distro_vs_poster(art_image, distro_a, distro_b):
+    """Takes the text-free PIL image returned by FLUX.1-schnell and draws the
+    distro titles, taglines and bottom hook banner on top with Pillow. Returns
+    final PNG bytes ready to send to Discord."""
+    img = art_image.convert("RGBA")
+    W, H = img.size
+    draw = ImageDraw.Draw(img)
+
+    color_a, color_b = random.choice(DISTRO_VS_COLOR_PAIRS)
+    tagline_a = DISTRO_TAGLINES.get(distro_a, DEFAULT_TAGLINE)
+    tagline_b = DISTRO_TAGLINES.get(distro_b, DEFAULT_TAGLINE)
+    hook_line = random.choice(DISTRO_VS_HOOK_LINES)
+
+    side_margin = int(W * 0.045)
+    max_title_width = int(W * 0.46)
+
+    # --- Distro name titles, top-left / top-right ---
+    title_font_a = _distro_vs_fit_font(distro_a.upper(), "Impacted.ttf", int(W * 0.11), max_title_width)
+    title_font_b = _distro_vs_fit_font(distro_b.upper(), "Impacted.ttf", int(W * 0.11), max_title_width)
+    title_y = int(H * 0.05)
+    draw.text((side_margin, title_y), distro_a.upper(), font=title_font_a,
+               fill=color_a, stroke_width=8, stroke_fill="black")
+    draw.text((W - side_margin, title_y), distro_b.upper(), font=title_font_b,
+               fill=color_b, stroke_width=8, stroke_fill="black", anchor="ra")
+
+    # --- Taglines just below each title ---
+    tagline_font_a = _distro_vs_fit_font(tagline_a, "impact.ttf", int(W * 0.042), max_title_width)
+    tagline_font_b = _distro_vs_fit_font(tagline_b, "impact.ttf", int(W * 0.042), max_title_width)
+    tagline_y = title_y + int(H * 0.10)
+    draw.text((side_margin, tagline_y), tagline_a, font=tagline_font_a,
+               fill=color_a, stroke_width=5, stroke_fill="black")
+    draw.text((W - side_margin, tagline_y), tagline_b, font=tagline_font_b,
+               fill=color_b, stroke_width=5, stroke_fill="black", anchor="ra")
+
+    # --- Center "VS" mark ---
+    vs_font = _distro_vs_font("Impacted.ttf", int(W * 0.09))
+    draw.text((W // 2, int(H * 0.46)), "VS", font=vs_font, fill="white",
+               stroke_width=10, stroke_fill="black", anchor="mm")
+
+    # --- Bottom hook banner: dark translucent strip + centered wrapped text ---
+    banner_h = int(H * 0.13)
+    banner_top = H - banner_h
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    ImageDraw.Draw(overlay).rectangle([(0, banner_top), (W, H)], fill=(0, 0, 0, 150))
+    img = Image.alpha_composite(img, overlay)
+    draw = ImageDraw.Draw(img)
+
+    hook_font = _distro_vs_font("impact.ttf", int(W * 0.052))
+    hook_lines = _distro_vs_wrap_text(hook_line, hook_font, W * 0.9)
+    line_height = int(W * 0.052 * 1.2)
+    total_h = line_height * len(hook_lines)
+    start_y = banner_top + (banner_h - total_h) // 2 + line_height // 2
+    for i, line in enumerate(hook_lines):
+        draw.text((W // 2, start_y + i * line_height), line, font=hook_font,
+                   fill="white", stroke_width=4, stroke_fill="black", anchor="mm")
+
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, format="PNG")
+    return buf.getvalue()
 
 # --- Core send logic, shared between the recurring task AND the instant
 #     first-post triggered by ?setdistrochannel ---
