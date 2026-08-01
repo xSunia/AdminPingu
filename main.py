@@ -1694,7 +1694,7 @@ async def pythontip(ctx):
 @bot.hybrid_command(name="tea", aliases=["brew"], description="Serves a cup of tea.")
 async def tea(ctx, member: discord.Member = None):
     member = member or ctx.author
-    await ctx.send(f"☕ Hey {member.mention}, here is a freshly brewed cup of hot tea for you. Enjoy!")
+    await ctx.send(f"🍵 Hey {member.mention}, here is a freshly brewed cup of hot tea for you. Enjoy!")
 
 @bot.hybrid_command(name="ping", aliases=["latency", "pg"], description="Shows bot latency.")
 async def ping(ctx):
