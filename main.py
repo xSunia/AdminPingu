@@ -1229,9 +1229,26 @@ async def render_stats_card(member, current_xp, current_level, next_level_xp, pr
     if custom.get("bg_data"):
         try:
             raw = base64.b64decode(custom["bg_data"])
-            bg_image = Image.open(io.BytesIO(raw)).convert("RGB").resize((width, height))
+            bg_image = Image.open(io.BytesIO(raw)).convert("RGBA").resize((width, height))
+
+            # BUGFIX: this used to be `Editor(bg_image.convert("RGB"))` followed
+            # by `background.rectangle(..., color=(0, 0, 0, 140))` to darken the
+            # background so the text stays readable on top of it. That looked
+            # right, but Pillow's ImageDraw.rectangle() does NOT alpha-blend a
+            # semi-transparent fill against the pixels already there — it just
+            # overwrites that region with the literal (0, 0, 0, 140) RGBA value.
+            # Since the darken rectangle covered the entire card (0,0)-(width,
+            # height), it was wiping out the whole uploaded background image
+            # every single time, leaving only a flat near-black card behind —
+            # exactly the "background doesn't show up" bug.
+            #
+            # The fix: do the darkening ourselves with a real alpha composite
+            # (Image.alpha_composite), which properly blends a translucent
+            # black layer over the background instead of replacing it.
+            dark_overlay = Image.new("RGBA", (width, height), (0, 0, 0, 140))
+            bg_image = Image.alpha_composite(bg_image, dark_overlay)
+
             background = Editor(bg_image)
-            background.rectangle((0, 0), width=width, height=height, color=(0, 0, 0, 140))
         except Exception:
             background = Editor(Canvas((width, height), color="#1e1e2e"))
     else:
