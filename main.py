@@ -3,6 +3,7 @@ from discord.ext import commands, tasks
 from discord.ui import Select, View, Modal, TextInput
 from flask import Flask
 from threading import Thread
+import threading
 import random
 import time
 import datetime
@@ -17,12 +18,134 @@ import traceback
 import io
 import base64
 import sys
+import logging
+from logging.handlers import RotatingFileHandler
 from unidecode import unidecode
 from easy_pil import Editor, Canvas, Font, load_image_async
 from motor.motor_asyncio import AsyncIOMotorClient
 from PIL import Image, ImageDraw, ImageFont
 from google import genai
 from google.genai import types
+
+# =====================================================================
+# Reliability / logging hardening
+# =====================================================================
+# WHY THIS BLOCK EXISTS:
+# The bot would sometimes go offline with absolutely nothing useful in
+# the logs to explain why. That symptom almost always comes from a mix
+# of these root causes, all fixed below:
+#
+#   1) stdout was block-buffered. When the process is killed abruptly
+#      (crash, out-of-memory kill, host restart, etc.) whatever was
+#      still sitting in the stdout buffer and had not been flushed yet
+#      is lost forever — so the very last (and most informative) lines
+#      right before the crash never reach the log viewer.
+#   2) Nothing ever called logging.basicConfig()/attached a handler,
+#      so any message that discord.py itself logs internally through
+#      Python's `logging` module (session resumes, gateway closes,
+#      rate limits, etc.) had nowhere reliable to go.
+#   3) The 5 background @tasks.loop jobs had no .error() handler, so a
+#      single unhandled exception inside one of them permanently killed
+#      that loop (it does not auto-restart) with only a stderr
+#      traceback as a trace — easy to miss and easy to lose to #1.
+#   4) There was no top-level try/except around bot.run(), no asyncio
+#      loop exception handler, and no thread exception hook, so a
+#      handful of failure classes (bad token, unhandled task exception,
+#      exception inside the Flask keep-alive thread) could end the
+#      process without a clear final message.
+#
+# None of this changes bot behaviour/features — it only guarantees that
+# whenever the bot stops or a background job dies, the reason is always
+# written somewhere you can actually find it.
+
+# Force line-buffered stdout/stderr so every print()/log line is
+# flushed to the underlying stream immediately instead of sitting in a
+# buffer that can be lost if the process dies unexpectedly.
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+except Exception:
+    # reconfigure() needs Python 3.7+; if unavailable, keep defaults.
+    pass
+
+# Where the persistent log file lives. This acts as a safety net that
+# survives even if the hosting platform's own log viewer drops, trims,
+# or fails to capture console output for any reason.
+LOG_FILE_PATH = os.environ.get("ADMINPINGU_LOG_FILE", "adminpingu.log")
+
+LOG_FORMAT = logging.Formatter(
+    "[%(asctime)s] [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+
+logger = logging.getLogger("AdminPingu")
+logger.setLevel(logging.INFO)
+
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setFormatter(LOG_FORMAT)
+logger.addHandler(console_handler)
+
+file_handler = None
+try:
+    file_handler = RotatingFileHandler(
+        LOG_FILE_PATH, maxBytes=2_000_000, backupCount=5, encoding="utf-8"
+    )
+    file_handler.setFormatter(LOG_FORMAT)
+    logger.addHandler(file_handler)
+except Exception as log_setup_error:
+    # If we can't even create the log file (e.g. read-only filesystem),
+    # fall back to console-only logging instead of crashing on startup.
+    print(f"Could not create log file handler: {log_setup_error}", flush=True)
+
+# Make discord.py's own internal logger ("discord", "discord.gateway",
+# "discord.ext.tasks", ...) share our handlers, so gateway disconnects,
+# reconnect attempts, and rate-limit warnings are no longer swallowed
+# silently — they'll show up in both the console and adminpingu.log.
+discord_logger = logging.getLogger("discord")
+discord_logger.setLevel(logging.INFO)
+discord_logger.addHandler(console_handler)
+if file_handler:
+    discord_logger.addHandler(file_handler)
+
+
+def handle_uncaught_exception(exc_type, exc_value, exc_traceback):
+    """
+    Global safety net for the MAIN thread. Without this, an exception
+    that escapes all the way to the top of the program just prints a
+    traceback and exits — and depending on buffering, that traceback
+    can be the exact thing that gets lost. Routing it through our
+    logger guarantees it is flushed to both the console and the log
+    file before the process actually dies.
+    """
+    if issubclass(exc_type, KeyboardInterrupt):
+        # Let Ctrl+C behave normally instead of logging it as an error.
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    logger.critical(
+        "Uncaught exception crashed the main thread — this is almost "
+        "certainly why the bot went offline:",
+        exc_info=(exc_type, exc_value, exc_traceback),
+    )
+
+
+sys.excepthook = handle_uncaught_exception
+
+
+def handle_thread_exception(args):
+    """
+    Same safety net as above, but for background threads (namely the
+    Flask keep-alive thread). By default, an exception inside a thread
+    is printed once to stderr and then the thread just quietly dies —
+    this makes sure it's logged clearly instead.
+    """
+    logger.critical(
+        f"Uncaught exception in thread '{args.thread.name}': "
+        f"{args.exc_type.__name__}: {args.exc_value}",
+        exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+    )
+
+
+threading.excepthook = handle_thread_exception
 
 
 app = Flask('')
@@ -32,11 +155,15 @@ def home():
     return "AdminPingu is currently online and fully operational."
 
 def run():
+    # Runs inside its own background thread. Any exception raised here
+    # is now caught by threading.excepthook (set up above) instead of
+    # silently killing the thread with no explanation.
     app.run(host='0.0.0.0', port=8080)
 
 def keep_alive():
-    t = Thread(target=run)
+    t = Thread(target=run, name="FlaskKeepAliveThread", daemon=True)
     t.start()
+    logger.info("Flask keep-alive server started on port 8080.")
 
 intents = discord.Intents.default()
 intents.messages = True
@@ -579,30 +706,54 @@ class RolesView(View):
 # ==========================================
 @tasks.loop(minutes=30)
 async def half_hourly_reminder():
+    # NOTE: this body previously had NO try/except at all. Any failure
+    # here (e.g. channel.send() hitting discord.Forbidden, a rate
+    # limit, or a network blip) used to propagate all the way up and
+    # PERMANENTLY stop this loop for the rest of the process's life —
+    # with no automatic retry and only a bare stderr traceback as a
+    # trace. It is now caught and logged, and the .error() handler
+    # below acts as a second safety net either way.
     await bot.wait_until_ready()
     global REMINDER_CHANNEL_ID, last_activity_time
-    if time.time() - last_activity_time > REMINDER_INACTIVITY_THRESHOLD_SECONDS:
-        return
-    channel = bot.get_channel(REMINDER_CHANNEL_ID)
-    if channel:
-        rule = random.choice(SERVER_RULES)
-        embed = discord.Embed(
-            title="🐧 Automated Security Reminder",
-            description=f"Just a quick reminder to keep our community safe and enjoyable:\n\n"
-                        f"🔹 **Rule:** {rule['title']}\n"
-                        f"📝 **Details:** {rule['desc']}\n"
-                        f"⚡ **Penalty:** `{rule['penalty']}`",
-            color=discord.Color.red()
-        )
-        embed.set_footer(text="AdminPingu System Protection Protocol")
-        await channel.send(embed=embed)
+    try:
+        if time.time() - last_activity_time > REMINDER_INACTIVITY_THRESHOLD_SECONDS:
+            return
+        channel = bot.get_channel(REMINDER_CHANNEL_ID)
+        if channel:
+            rule = random.choice(SERVER_RULES)
+            embed = discord.Embed(
+                title="🐧 Automated Security Reminder",
+                description=f"Just a quick reminder to keep our community safe and enjoyable:\n\n"
+                            f"🔹 **Rule:** {rule['title']}\n"
+                            f"📝 **Details:** {rule['desc']}\n"
+                            f"⚡ **Penalty:** `{rule['penalty']}`",
+                color=discord.Color.red()
+            )
+            embed.set_footer(text="AdminPingu System Protection Protocol")
+            await channel.send(embed=embed)
+    except Exception as e:
+        logger.error(f"Half-hourly reminder error: {e}", exc_info=True)
+
+
+@half_hourly_reminder.error
+async def half_hourly_reminder_error(error):
+    # discord.py calls this automatically if the loop body above ever
+    # raises anyway. Without this, the loop silently stops forever and
+    # the only trace is a bare stderr traceback that is easy to miss.
+    logger.error(f"half_hourly_reminder loop crashed: {error}", exc_info=error)
+
 
 @tasks.loop(hours=24)
 async def reset_daily_xp():
     try:
         await xp_collection.update_many({}, {"$set": {"daily": 0}})
     except Exception as e:
-        print(f"Failed to reset daily XP: {e}")
+        logger.error(f"Failed to reset daily XP: {e}", exc_info=True)
+
+
+@reset_daily_xp.error
+async def reset_daily_xp_error(error):
+    logger.error(f"reset_daily_xp loop crashed: {error}", exc_info=error)
 
 @tasks.loop(hours=1)
 async def daily_tech_news():
@@ -635,7 +786,13 @@ async def daily_tech_news():
                 if news_channel:
                     await news_channel.send("🚨 **Fresh Tech News Uploaded!** 🚨", embed=embed)
     except Exception as e:
-        print(f"Tech news stream error: {e}")
+        logger.error(f"Tech news stream error: {e}", exc_info=True)
+
+
+@daily_tech_news.error
+async def daily_tech_news_error(error):
+    logger.error(f"daily_tech_news loop crashed: {error}", exc_info=error)
+
 
 @tasks.loop(time=datetime.time(hour=12, minute=0, tzinfo=datetime.timezone.utc))
 async def sunday_xp_event():
@@ -675,9 +832,15 @@ async def sunday_xp_event():
         if announcement_channel:
             await announcement_channel.send("🛑 **THE SUNDAY 3X XP EVENT HAS CONCLUDED!** The rift has collapsed and the channel has been erased. See you all next week!")
     except Exception as e:
-        print(f"Sunday Event Error: {e}")
+        logger.error(f"Sunday Event Error: {e}", exc_info=True)
         ACTIVE_EVENT_CHANNEL_ID = None
         await clear_event_state()
+
+
+@sunday_xp_event.error
+async def sunday_xp_event_error(error):
+    logger.error(f"sunday_xp_event loop crashed: {error}", exc_info=error)
+
 
 # ==========================================
 # Startup / lifecycle events
@@ -709,11 +872,17 @@ async def on_ready():
     except Exception as e:
         print(f'❌ Slash Command Sync Error: {e}')
     await bot.change_presence(activity=discord.Game(name="Managing the Server | ?help or /help"))
-    half_hourly_reminder.start()
-    reset_daily_xp.start()
-    daily_tech_news.start()
-    sunday_xp_event.start()
-    daily_distro_vs.start()
+
+    # on_ready can fire more than once over a long uptime (e.g. after a
+    # dropped gateway session forces a full re-identify instead of a
+    # resume). Calling .start() on a loop that is already running
+    # raises RuntimeError, which — since this used to have no
+    # is_running() guard — would abort the rest of on_ready right here
+    # and skip everything below (event/news/distro state restoration).
+    # is_running() makes every restart/reconnect idempotent and safe.
+    for loop_job in (half_hourly_reminder, reset_daily_xp, daily_tech_news, sunday_xp_event, daily_distro_vs):
+        if not loop_job.is_running():
+            loop_job.start()
     bot.add_view(RolesView())
     try:
         state = await load_event_state()
@@ -2445,9 +2614,50 @@ async def on_command_error(ctx, error):
     elif isinstance(error, commands.MissingRequiredArgument):
         await ctx.send(f"❌ **Syntax Error:** You are missing some arguments! Check `?help` for usage.")
     else:
-        print(f"Unhandled command error in '{ctx.command}': {type(error).__name__}: {error}", flush=True)
-        traceback.print_exc()
-        sys.stdout.flush()
+        logger.error(
+            f"Unhandled command error in '{ctx.command}': {type(error).__name__}: {error}",
+            exc_info=error,
+        )
+
+
+@bot.event
+async def on_error(event_method, *args, **kwargs):
+    """
+    Called automatically by discord.py whenever an exception is raised
+    inside ANY event handler (on_message, on_ready, on_member_join,
+    etc.) and is not caught locally. Previously there was no override
+    for this, so discord.py fell back to its own default behaviour of
+    just printing a bare traceback to stderr and moving on — easy to
+    lose. Now it's always routed through our logger (console + file).
+    """
+    logger.error(f"Unhandled exception in event '{event_method}':")
+    logger.error(traceback.format_exc())
+
+
+async def on_tree_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
+    """
+    Slash commands (the /-prefixed ones) raise through the app command
+    tree instead of on_command_error above. There was previously no
+    handler registered for this at all, so any exception inside a
+    slash command silently vanished into discord.py's own default
+    stderr-only handler. This makes sure it's logged the same way as
+    every other error path, and gives the user a clean error message
+    instead of the interaction just hanging/failing with no feedback.
+    """
+    logger.error(f"Unhandled slash command error in '{interaction.command}': {error}", exc_info=error)
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send("❌ Something went wrong while running that command.", ephemeral=True)
+        else:
+            await interaction.response.send_message("❌ Something went wrong while running that command.", ephemeral=True)
+    except Exception:
+        # If we can't even reply to the interaction (e.g. it already
+        # expired), there's nothing more useful we can do here.
+        pass
+
+
+bot.tree.on_error = on_tree_error
+
 # =====================================================================
 # DISTRO VS — AI-generated Linux distro showdown poster system
 # =====================================================================
@@ -2838,29 +3048,43 @@ async def send_distro_vs_showdown(channel):
 # --- Background task: checks every 15 minutes, posts every ~12 hours ---
 @tasks.loop(minutes=DISTRO_VS_CHECK_INTERVAL_MINUTES)
 async def daily_distro_vs():
+    # NOTE: send_distro_vs_showdown() can raise (e.g. discord.Forbidden
+    # if the bot loses access to the channel, or an HTTPException on a
+    # rate limit) and previously nothing here caught that, which would
+    # permanently stop this loop. Now caught + logged, with .error()
+    # below as a second safety net.
     await bot.wait_until_ready()
+    try:
+        config = await load_distro_vs_config()
+        if not config or not config.get("channel_id"):
+            # No channel configured yet — silently wait until an admin runs ?setdistrochannel.
+            return
 
-    config = await load_distro_vs_config()
-    if not config or not config.get("channel_id"):
-        # No channel configured yet — silently wait until an admin runs ?setdistrochannel.
-        return
+        channel_id = int(config["channel_id"])
+        channel = bot.get_channel(channel_id)
+        if not channel:
+            logger.warning(
+                f"Distro VS skipped: channel {channel_id} not found or bot has no access to it. "
+                f"Double-check the channel still exists and re-run ?setdistrochannel if needed."
+            )
+            return
 
-    channel_id = int(config["channel_id"])
-    channel = bot.get_channel(channel_id)
-    if not channel:
-        print(f"Distro VS skipped: channel {channel_id} not found or bot has no access to it. "
-              f"Double-check the channel still exists and re-run ?setdistrochannel if needed.", flush=True)
-        return
+        last_sent = config.get("last_sent")
+        now = time.time()
+        if last_sent and (now - last_sent) < DISTRO_VS_INTERVAL_SECONDS:
+            # Not due yet — this correctly handles the case where the bot just
+            # restarted less than 12h after the previous post, so it will NOT
+            # send a duplicate right away.
+            return
 
-    last_sent = config.get("last_sent")
-    now = time.time()
-    if last_sent and (now - last_sent) < DISTRO_VS_INTERVAL_SECONDS:
-        # Not due yet — this correctly handles the case where the bot just
-        # restarted less than 12h after the previous post, so it will NOT
-        # send a duplicate right away.
-        return
+        await send_distro_vs_showdown(channel)
+    except Exception as e:
+        logger.error(f"daily_distro_vs tick error: {e}", exc_info=True)
 
-    await send_distro_vs_showdown(channel)
+
+@daily_distro_vs.error
+async def daily_distro_vs_error(error):
+    logger.error(f"daily_distro_vs loop crashed: {error}", exc_info=error)
 
 # ==========================================
 # Admin command: configure the Distro VS channel
@@ -2905,5 +3129,76 @@ async def setdistrochannel(ctx, channel: discord.TextChannel = None):
 # =====================================================================
 # Final startup
 # =====================================================================
-keep_alive()
-bot.run(os.environ["DISCORD_TOKEN"])
+# This replaces the old bare `bot.run(os.environ["DISCORD_TOKEN"])`.
+# bot.run() is convenient but gives you no hook to (a) catch a missing
+# token before it crashes with a confusing KeyError, (b) install a
+# handler for exceptions that occur in "fire and forget" asyncio tasks
+# that nobody ever awaits, or (c) guarantee that whatever caused the
+# process to stop gets logged before it actually exits. main() below
+# does the same job as bot.run() internally, plus all of that.
+
+
+def asyncio_exception_handler(loop, context):
+    """
+    Installed on the event loop. This is the last line of defense for
+    asyncio-specific failures that don't go through on_error or a
+    task's own try/except — most commonly an exception raised inside
+    a task created with asyncio.create_task(...) that is never awaited
+    and whose result/exception is therefore never retrieved. Without
+    this handler, asyncio's own default behaviour is to print a short
+    message to stderr, which — combined with the buffering issue fixed
+    above — was easy to lose entirely.
+    """
+    exception = context.get("exception")
+    message = context.get("message", "Unhandled asyncio error")
+    logger.error(f"Unhandled asyncio exception: {message}", exc_info=exception)
+
+
+async def main():
+    token = os.environ.get("DISCORD_TOKEN")
+    if not token:
+        logger.critical(
+            "DISCORD_TOKEN environment variable is missing or empty! "
+            "The bot cannot log in without it — set it in your host's "
+            "environment/secrets panel and restart."
+        )
+        return
+
+    loop = asyncio.get_running_loop()
+    loop.set_exception_handler(asyncio_exception_handler)
+
+    logger.info("Starting AdminPingu...")
+    try:
+        # Using bot.start() inside an `async with bot` block instead of
+        # bot.run() gives us a try/except around the entire bot
+        # lifetime, so ANY reason it stops — bad token, fatal network
+        # error, an uncaught exception anywhere, or a clean shutdown —
+        # is always logged with full context before the process exits.
+        async with bot:
+            await bot.start(token)
+    except discord.LoginFailure:
+        logger.critical(
+            "Login failed: DISCORD_TOKEN is invalid, expired, or was reset "
+            "in the Discord Developer Portal. Generate a new token and "
+            "update it, then restart the bot."
+        )
+    except discord.PrivilegedIntentsRequired:
+        logger.critical(
+            "Login failed: one or more privileged intents (Members / "
+            "Message Content) are not enabled for this bot in the "
+            "Discord Developer Portal > Bot > Privileged Gateway Intents."
+        )
+    except Exception:
+        logger.critical("The bot crashed with an unhandled exception:")
+        logger.critical(traceback.format_exc())
+        raise
+    finally:
+        logger.warning("AdminPingu process is shutting down now.")
+
+
+if __name__ == "__main__":
+    keep_alive()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.warning("Shutdown requested via KeyboardInterrupt (Ctrl+C).")
