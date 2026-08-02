@@ -2081,7 +2081,11 @@ async def gif(ctx):
     embed.set_image(url=random.choice(LINUX_GIFS))
     await ctx.send(embed=embed)
 
-TUX_ASCII = [
+@bot.hybrid_command(name="neofetch", aliases=["nf", "sysinfo"], description="Shows user and OS information in a neofetch style.")
+async def neofetch(ctx):
+    user_role_ids = [r.id for r in ctx.author.roles]
+
+    TUX_ASCII = [
         r"       .--.           ",
         r"      |o_o |          ",
         r"      |:_/ |          ",
