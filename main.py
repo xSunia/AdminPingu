@@ -2253,15 +2253,17 @@ async def neofetch(ctx):
     # CachyOS's real logo is a stylized flowing chevron/arrow mark — this
     # ASCII approximation captures that shape instead of reusing Arch's plain
     # triangle, so it's actually recognizable as CachyOS in ?neofetch.
-    CACHYOS_ASCII = [
-        r"     _______          ",
-        r"    /   __  \         ",
-        r"   /   /  \  \        ",
-        r"   \   \__/  /        ",
-        r"    \_______/         ",
-        r"     \  __  /         ",
-        r"      \/  \/          "
-    ]
+   CACHYOS_ASCII = [
+    r"    +*+++++++*      ",
+    r"  .=++=+**+++.  :.  ",
+    r" .==*++.....  ..    ",
+    r" =++*+       .==    ",
+    r"====+.           ...",
+    r" *++++          .===",
+    r"  +++=++========-   ",
+    r"   *+=+++++====-    ",
+    r"    *********+:     "
+]
     WIN11_ASCII = [
         r"  #######   #######   ",
         r"  #######   #######   ",
