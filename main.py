@@ -2241,7 +2241,7 @@ async def neofetch(ctx):
         r"                      ",
         r"                      "
     ]
-    ARTIX_ASCII = [
+ARTIX_ASCII = [
         r"        /\            ",
         r"       /  \           ",
         r"      / /\ \          ",
@@ -2253,17 +2253,17 @@ async def neofetch(ctx):
     # CachyOS's real logo is a stylized flowing chevron/arrow mark — this
     # ASCII approximation captures that shape instead of reusing Arch's plain
     # triangle, so it's actually recognizable as CachyOS in ?neofetch.
-   CACHYOS_ASCII = [
-    r"    +*+++++++*      ",
-    r"  .=++=+**+++.  :.  ",
-    r" .==*++.....  ..    ",
-    r" =++*+       .==    ",
-    r"====+.           ...",
-    r" *++++          .===",
-    r"  +++=++========-   ",
-    r"   *+=+++++====-    ",
-    r"    *********+:     "
-]
+    CACHYOS_ASCII = [
+        r"    +*+++++++*      ",
+        r"  .=++=+**+++.  :.  ",
+        r" .==*++.....  ..    ",
+        r" =++*+       .==    ",
+        r"====+.           ...",
+        r" *++++          .===",
+        r"  +++=++========-   ",
+        r"   *+=+++++====-    ",
+        r"    *********+:     "
+    ]
     WIN11_ASCII = [
         r"  #######   #######   ",
         r"  #######   #######   ",
