@@ -189,6 +189,17 @@ MEDIA_ROLE_ID = 1521875919864856714
 
 ACTIVE_EVENT_CHANNEL_ID = None
 
+# Channels where users are free to post media/GIF links with no restrictions
+# (exempt from the identical-message spam filter below).
+UNRESTRICTED_MEDIA_CHANNEL_IDS = [
+    1528490372240510996,
+    1510346595298709646,
+    1510347156358168697,
+    1510347277938589749,
+    1521943152490189012,
+    1510347496139002078,
+]
+
 REMINDER_INACTIVITY_THRESHOLD_SECONDS = 3600
 
 LEVEL_ROLES = {
@@ -265,18 +276,6 @@ TANK_FACTS = [
     "Modern main battle tanks like the Leopard 2 use layered composite armor to defeat both kinetic penetrators and shaped-charge warheads."
 ]
 
-MMA_FACTS = [
-    "Jon 'Bones' Jones became the youngest champion in UFC history at the age of 23.",
-    "The traditional Octagon was created to avoid the disadvantages of a square boxing ring, preventing fighters from getting trapped in corners.",
-    "Brazilian Jiu-Jitsu rose to global fame after Royce Gracie dominated the first, second, and fourth UFC tournaments.",
-    "Anderson Silva held the UFC Middleweight Championship for a record-setting 2,457 consecutive days.",
-    "The UFC was founded in 1993 and originally had almost no weight classes, time limits, or many of today's safety rules.",
-    "Georges St-Pierre is one of the few fighters in UFC history to hold championship belts in two different weight classes.",
-    "Muay Thai is often nicknamed 'The Art of Eight Limbs' because fighters strike with fists, elbows, knees, and shins.",
-    "Khabib Nurmagomedov retired from professional MMA with a perfect, undefeated record of 29 wins and 0 losses.",
-    "Many Brazilian Jiu-Jitsu submissions and Judo throws share historical roots, both having evolved out of traditional Japanese jujutsu."
-]
-
 TECH_JOKES = [
     "There are 10 types of people in the world: those who understand binary, and those who don't.",
     "Why do programmers prefer dark mode? Because light attracts bugs.",
@@ -310,12 +309,12 @@ ALL_DISTRO_ROLES = [
     1521870173861056655, 1521871399403393044, 1521871679368986655, 1521871896117776468,
     1521870110552227910, 1521868791942742026, 1521871613958819860, 1521871816321404969, 1521872016901406720,
     1521870225228955798, 1521872173688422420, 1521872360393670819, 1521872534117679206, 1521872635968098344,
-    1521872683803873432, 1521872759691542588, 1521873026776301608, 1521873129868365964,
+    1534520300807520379, 1521872759691542588, 1521873026776301608, 1521873129868365964,
     1521909235594825941, 1521909235594825999,
     1522137195102867526, 1522137253856415784, 1522143963904081920,
     1521909451739893982, 1521909341802725427, 1522212167393214514, 1522212092663300248,
     1522211951709519872, 1522211033073324234, 1522211796532854826, 1522211599744499834,
-    1521909403496742973
+    1521909403496742973, 1534519999681658941
 ]
 ALL_GPU_ROLES = [1521879270530486414, 1521879224951246928, 1521879315648614410]
 
@@ -418,33 +417,19 @@ last_activity_time = time.time()
 # ==========================================
 # Leveling math
 # ==========================================
-# XP curve design (per admin request):
-#   - Levels 1-10: hand-tuned "easy" anchor points, gentle intro to the level system.
-#   - Levels 10-50: "medium" difficulty band, smooth and steady growth.
-#   - Levels 50-90: growth accelerates noticeably ("gets harder").
-#   - Levels 90-100: very steep final stretch ("very hard, but not impossible").
-#   - Levels 100+: keeps escalating at the same rate as the 90-100 band, in case
-#     the level cap is ever raised.
-#
-# NOTE: the requested numbers for level 10 and level 100 in the spec were a bit
-# ambiguous/contradictory (a flat "10->950, 100->1010" reading would make the
-# 90-100 band nearly flat, which directly contradicts "90-100 should be very
-# hard"). To honor BOTH the literal levels 1-8 anchors AND the explicit
-# difficulty description, level 10 anchor was kept close to spec (950) while
-# the 90-100 band was built to be dramatically steeper, as explicitly requested.
-_LEVEL_ANCHORS_1_TO_10 = {
-    1: 100,
-    2: 200,
-    3: 400,
-    4: 500,
-    5: 625,   # interpolated between level 4 (500) and level 6 (750)
-    6: 750,
-    7: 825,   # interpolated between level 6 (750) and level 8 (900)
-    8: 900,
-    9: 925,   # interpolated between level 8 (900) and level 10 (950)
-    10: 950,
-}
-
+# XP curve design (per admin request, redesigned to make leveling much more
+# achievable overall):
+#   - Levels 1-10: dead simple linear curve, level N costs exactly N*100 XP
+#     to reach from the previous level (100, 200, 300 ... 1000). This band
+#     is meant to take roughly ~30 minutes of normal chatting.
+#   - Levels 10-20: "light-medium" difficulty, first gentle step up.
+#   - Levels 20-30: "medium" difficulty.
+#   - Levels 30-50: still "medium" difficulty, just a longer stretch of it.
+#   - Levels 50-75: "somewhat hard" - starts to require real grinding.
+#   - Levels 75-90: "a bit harder" than the 50-75 band.
+#   - Levels 90-100: "genuinely hard" - the steepest, final stretch.
+#   - Levels 100+: keeps escalating at the same rate as the 90-100 band, in
+#     case the level cap is ever raised.
 def _geometric_interp(level, low_level, low_value, high_level, high_value):
     """Smoothly grows from low_value to high_value as level goes low_level -> high_level."""
     t = (level - low_level) / (high_level - low_level)
@@ -453,21 +438,47 @@ def _geometric_interp(level, low_level, low_value, high_level, high_value):
 def _xp_delta_for_level(level):
     """Returns how much XP is needed to go from (level - 1) to (level)."""
     if level <= 10:
-        return _LEVEL_ANCHORS_1_TO_10[level]
+        # Levels 1-10: exactly level * 100 (100, 200, 300 ... 1000).
+        value = level * 100
+    elif level <= 20:
+        # Light-medium: 10 -> 20.
+        value = _geometric_interp(level, 10, 1000, 20, 2000)
+    elif level <= 30:
+        # Medium: 20 -> 30.
+        value = _geometric_interp(level, 20, 2000, 30, 3500)
     elif level <= 50:
-        # Medium band: 10 -> 50 grows gently, easy-to-medium difficulty.
-        value = _geometric_interp(level, 10, 950, 50, 3200)
+        # Medium (longer stretch): 30 -> 50.
+        value = _geometric_interp(level, 30, 3500, 50, 8000)
+    elif level <= 75:
+        # Somewhat hard: 50 -> 75.
+        value = _geometric_interp(level, 50, 8000, 75, 20000)
     elif level <= 90:
-        # Harder band: 50 -> 90 accelerates noticeably.
-        value = _geometric_interp(level, 50, 3200, 90, 18000)
+        # A bit harder: 75 -> 90.
+        value = _geometric_interp(level, 75, 20000, 90, 45000)
     elif level <= 100:
-        # Very hard (but not impossible) final stretch: 90 -> 100.
-        value = _geometric_interp(level, 90, 18000, 100, 140000)
+        # Genuinely hard, steepest final stretch: 90 -> 100.
+        value = _geometric_interp(level, 90, 45000, 100, 150000)
     else:
         # Beyond level 100 (future-proofing): keep compounding at the same
         # rate as the final band so the curve never breaks or plateaus.
-        value = 140000 * (1.35 ** (level - 100))
+        value = 150000 * (1.35 ** (level - 100))
     return max(50, round(value))
+
+# Every 3 messages a user gets awarded XP in the 5-30 range, but weighted
+# so that rolls of 15+ are the most common outcome instead of a flat
+# uniform 5-30 roll.
+def get_weighted_xp_gain():
+    """Returns a weighted random XP amount between 5 and 30, favoring 15+."""
+    tier = random.choices(
+        population=["low", "mid", "high"],
+        weights=[15, 25, 60],  # low: 5-9, mid: 10-14, high: 15-30 (favored)
+        k=1
+    )[0]
+    if tier == "low":
+        return random.randint(5, 9)
+    elif tier == "mid":
+        return random.randint(10, 14)
+    return random.randint(15, 30)
 
 _MAX_PRECOMPUTED_LEVEL = 200
 _XP_REQUIREMENT_TABLE = [0]
@@ -693,10 +704,11 @@ class RolesView(View):
             discord.SelectOption(label="Fedora", value="1521872360393670819"),
             discord.SelectOption(label="Red Star OS", value="1521872534117679206"),
             discord.SelectOption(label="Void Linux", value="1521872635968098344"),
-            discord.SelectOption(label="NixOS", value="1521872683803873432"),
+            discord.SelectOption(label="NixOS", value="1534520300807520379"),
             discord.SelectOption(label="Alpine Linux", value="1521872759691542588"),
             discord.SelectOption(label="openSUSE", value="1521873026776301608"),
-            discord.SelectOption(label="Slackware", value="1521873129868365964")
+            discord.SelectOption(label="Slackware", value="1521873129868365964"),
+            discord.SelectOption(label="Chimera Linux", value="1534519999681658941")
         ]
         self.add_item(DistroSelect(placeholder="Independent", options=indep_opts, custom_id="indep_menu"))
         self.add_item(GPUSelect())
@@ -1461,7 +1473,7 @@ async def on_message(message):
     last_activity_time = time.time()
     is_mod = message.author.guild_permissions.manage_messages
     if not is_mod:
-        if message.channel.id != ACTIVE_EVENT_CHANNEL_ID:
+        if message.channel.id != ACTIVE_EVENT_CHANNEL_ID and message.channel.id not in UNRESTRICTED_MEDIA_CHANNEL_IDS:
             if message.author.id not in user_message_cache:
                 user_message_cache[message.author.id] = []
             user_message_cache[message.author.id].append(message.content.lower())
@@ -1490,7 +1502,7 @@ async def on_message(message):
         xp_message_counter[author_id] += 1
         if xp_message_counter[author_id] >= 3:
             xp_message_counter[author_id] = 0
-            gained = random.randint(5, 30)
+            gained = get_weighted_xp_gain()
             if message.channel.id == ACTIVE_EVENT_CHANNEL_ID:
                 gained *= 3
             levels_gained = await add_xp(author_id, gained)
@@ -2013,12 +2025,6 @@ async def tankfact(ctx):
     embed = discord.Embed(title="🪖 Random Tank Fact", description=fact, color=discord.Color.dark_gray())
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="mmafact", aliases=["mma", "mf"], description="Shows a random MMA fact.")
-async def mmafact(ctx):
-    fact = random.choice(MMA_FACTS)
-    embed = discord.Embed(title="🥊 Random MMA Fact", description=fact, color=discord.Color.red())
-    await ctx.send(embed=embed)
-
 @bot.hybrid_command(name="pythontip", aliases=["pytip", "ptip"], description="Shows a random Python tip.")
 async def pythontip(ctx):
     tip = random.choice(PYTHON_TIPS)
@@ -2118,13 +2124,36 @@ async def neofetch(ctx):
         r"-=.......                       .....=-"
     ]
     UBUNTU_ASCII = [
-        r"         .-.          ",
-        r"       .(   ).        ",
-        r"      (   .   )       ",
-        r"     .-. `-' .-.      ",
-        r"    (   )   (   )     ",
-        r"     `-'     `-'      ",
-        r"                      "
+        r"                                          @@@@@@        ",
+        r"                                        @@@@@@@@@@      ",
+        r"                                       @@@@@@@@@@@@     ",
+        r"                       .@@@@@@@@@@@@@  @@@@@@@@@@@@     ",
+        r"                       @@@@@@@@@@@@@@   @@@@@@@@@@      ",
+        r"                  @@    @@@@@@@@@@@@@@   @@@@@@@@       ",
+        r"                @@@@@=   *@@@@@@@@@@@@@@                ",
+        r"              #@@@@@@@@   -@@@*   :@@@@@@@@@**@@@@@     ",
+        r"             @@@@@@@@@@@                @@@@@@@@@@@@    ",
+        r"            @@@@@@@@@@@                   @@@@@@@@@@@   ",
+        r"           #@@@@@@@@@@                      @@@@@@@@@@  ",
+        r"           .@@@@@@@@*                        @@@@@@@@@* ",
+        r"   @@@@@@@.  @@@@@@@                         .@@@@@@@@@ ",
+        r" @@@@@@@@@@@  @@@@@                           @@@@@@@@@ ",
+        r" @@@@@@@@@@@.  @@@@                                     ",
+        r" @@@@@@@@@@@   @@@@                           @@@%%%##* ",
+        r" :@@@@@@@@@@  @@@@@@                          @@@@@@@@@ ",
+        r"   @@@@@@@   @@@@@@@                         @@@@@@@@@@ ",
+        r"           @@@@@@@@@@                       @@@@@@@@@@  ",
+        r"            @@@@@@@@@@@                    @@@@@@@@@@:  ",
+        r"             @@@@@@@@@@@                .@@@@@@@@@@@*   ",
+        r"              @@@@@@@@@    @.        @@@@@@@@@@@@@@.    ",
+        r"               %@@@@@@    @@@@@@@@@@@@@@@@@@%=@@@@      ",
+        r"                 @@@@    @@@@@@@@@@@@@@@                ",
+        r"                   +    @@@@@@@@@@@@@@+  +@@@@@@@       ",
+        r"                       @@@@@@@@@@@@@@@  @@@@@@@@@@@     ",
+        r"                           .@@@@@@@@@  -@@@@@@@@@@@     ",
+        r"                                       .@@@@@@@@@@@     ",
+        r"                                        @@@@@@@@@@      ",
+        r"                                          @@@@@@*       "
     ]
     DEBIAN_ASCII = [
         r"                       .%%%%%%+                       ",
@@ -2341,6 +2370,70 @@ async def neofetch(ctx):
         r"     :===========.      ",
         r"                        "
     ]
+    CHIMERA_ASCII = [
+        r"=====================   .++++*                     ",
+        r"=====================   .++++*                     ",
+        r"=====================   .++++*                     ",
+        r"=====================   .++++*                     ",
+        r"=====================   .++++*                     ",
+        r"==================      .++++*                     ",
+        r"===============         .++++*                     ",
+        r"=============      .+++++++++*                     ",
+        r"===========.     ++++++++++++*                     ",
+        r"==========     ++++++++++----=                     ",
+        r"=========.    ++++++                               ",
+        r"=========    ++++++                                ",
+        r"========.    +++++                +++++++++++++++++",
+        r"            +++++.                +++++++++++++++++",
+        r"            +++++.               .+++++------------",
+        r"--------.    +++++               +++++.            ",
+        r"---------    ++++++             ++++++    ---------",
+        r"---------.    ++++++.         .++++++    .+++++++++",
+        r"----------     ++++++++++-++++++++++     ++++++++++",
+        r"-----------.     +++++++++++++++++     .+++++++++++",
+        r"-------------      .+++++++++++.      +++++++++++++",
+        r"---------------                     +++++++++++++++",
+        r"------------------               ++++++++++++++++++",
+        r"-----------------------     +++++++++++++++++++++++",
+        r"-----------------------     +++++++++++++++++++++++",
+        r"-----------------------     +++++++++++++++++++++++",
+        r"-----------------------     +++++++++++++++++++++++",
+        r"-----------------------     +++++++++++++++++++++++"
+    ]
+    NIXOS_ASCII = [
+        r"                                                                    ",
+        r"                                                                    ",
+        r"                   ++++        -------       ----                   ",
+        r"                  +++++++       -------    -------                  ",
+        r"                  ++++++++       -------  --------                  ",
+        r"                   ++++++++       ---------------                   ",
+        r"                    ++++++++       -------------                    ",
+        r"             +++++++++++++++++++++++-----------       +             ",
+        r"            +++++++++++++++++++++++++---------       +++            ",
+        r"           +++++++++++++++++++++++++++--------      +++++           ",
+        r"          +++++++++++++++++++++++++++++--------    +++++++          ",
+        r"                    --------            --------  +++++++           ",
+        r"                   --------              --------+++++++            ",
+        r"                  --------                -----=+++++++             ",
+        r"      ------------------                    --++++++++++++++++      ",
+        r"     ------------------                      *+++++++++++++++++     ",
+        r"     -----------------++                    +++++++++++++++++++     ",
+        r"      ---------------++++                  +++++++++++++++++++      ",
+        r"             -------++++++                ++++++++                  ",
+        r"            -------++++++++              ++++++++                   ",
+        r"          --------   +++++++            +++++++                     ",
+        r"           ------     +++++++----------------------------           ",
+        r"            ----       +++++++--------------------------            ",
+        r"             --       +++++++++------------------------             ",
+        r"                     +++++++++++        -------                     ",
+        r"                    +++++++++++++        -------                    ",
+        r"                   +++++++ ++++++++       -------                   ",
+        r"                  +++++++   ++++++++       -------                  ",
+        r"                  ++++++     ++++++++       ------                  ",
+        r"                   ++++       ++++++++       ----                   ",
+        r"                                                                    ",
+        r"                                                                    "
+    ]
     WIN11_ASCII = [
         r"  #######   #######   ",
         r"  #######   #######   ",
@@ -2400,10 +2493,11 @@ async def neofetch(ctx):
         1521872360393670819: ("Fedora", FEDORA_ASCII),
         1521872534117679206: ("Red Star OS", TUX_ASCII),
         1521872635968098344: ("Void Linux", TUX_ASCII),
-        1521872683803873432: ("NixOS", TUX_ASCII),
+        1534520300807520379: ("NixOS", NIXOS_ASCII),
         1521872759691542588: ("Alpine Linux", TUX_ASCII),
         1521873026776301608: ("openSUSE", OPENSUSE_ASCII),
-        1521873129868365964: ("Slackware", TUX_ASCII)
+        1521873129868365964: ("Slackware", TUX_ASCII),
+        1534519999681658941: ("Chimera Linux", CHIMERA_ASCII)
     }
 
     win_role_mapping = {
@@ -2479,15 +2573,33 @@ async def neofetch(ctx):
         f"Prefix: ? (or use / anywhere)"
     ]
 
-    neofetch_output = "```ansi\n"
+    # Some logos (e.g. Chimera Linux, NixOS, Ubuntu) are much wider than the
+    # old fixed 22-char column, so the left column width is now computed per
+    # logo to make sure every ASCII art fits fully without getting clipped.
+    ascii_width = max((len(line) for line in final_ascii), default=22)
     max_lines = max(len(final_ascii), len(stats_lines))
-    for i in range(max_lines):
-        left = final_ascii[i].ljust(22) if i < len(final_ascii) else " " * 22
-        right = stats_lines[i] if i < len(stats_lines) else ""
-        neofetch_output += f"{left}  {right}\n"
-    neofetch_output += "```"
 
-    await ctx.send(neofetch_output)
+    def _build_block(line_range):
+        block = "```ansi\n"
+        for i in line_range:
+            left = final_ascii[i].ljust(ascii_width) if i < len(final_ascii) else " " * ascii_width
+            right = stats_lines[i] if i < len(stats_lines) else ""
+            block += f"{left}  {right}\n"
+        block += "```"
+        return block
+
+    neofetch_output = _build_block(range(max_lines))
+
+    if len(neofetch_output) <= 1990:
+        await ctx.send(neofetch_output)
+    else:
+        # A few of the larger logos can push the combined output past
+        # Discord's message length limit. Instead of cutting the ASCII art
+        # short, split it into two messages so the full logo still gets
+        # sent in one piece each.
+        mid = max_lines // 2
+        await ctx.send(_build_block(range(0, mid)))
+        await ctx.send(_build_block(range(mid, max_lines)))
 
 @bot.hybrid_command(name="cowsay", aliases=["cow"], description="Simulates the classic Linux cowsay command.")
 async def cowsay(ctx, *, text: str = "Moo! AdminPingu is watching."):
@@ -2638,7 +2750,7 @@ async def shortcuts(ctx):
     )
     embed.add_field(
         name="🎮 Fun & Random",
-        value="`?weather` → `wx` | `?tankfact` → `tank`, `tf` | `?mmafact` → `mma`, `mf`\n"
+        value="`?weather` → `wx` | `?tankfact` → `tank`, `tf`\n"
               "`?pythontip` → `pytip`, `ptip` | `?randomlinux` → `rl`, `linuxtip`\n"
               "`?whoami` → `wa` | `?avatar` → `av`, `pfp` | `?ping` → `latency`, `pg`\n"
               "`?coinflip` → `cf`, `flip` | `?diceroll` → `dice`, `roll`\n"
@@ -2693,7 +2805,7 @@ async def help(ctx):
               "`?neofetch` / `?cowsay <text>` / `?fortune` - Linux terminal fun\n"
               "`?packagemap <action>` / `?distrobattle` - More Linux nerdery\n"
               "`?uptime` - How long the bot has been running\n"
-              "`?tankfact` / `?mmafact` - Interesting facts\n"
+              "`?tankfact` - Interesting facts\n"
               "`?tea` - Brew some tea for someone\n"
               "`?coinflip` / `?diceroll` / `?8ball` / `?joke` / `?gif` - Minigames\n"
               "`?terminal` - Opens your own private Python sandbox terminal channel",
