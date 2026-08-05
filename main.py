@@ -708,6 +708,192 @@ class RolesView(View):
         self.add_item(GPUSelect())
 
 # ==========================================
+# Ticket system
+# ==========================================
+TICKET_CHANNEL_ID = 1534677201935536218
+TICKET_CATEGORY_NAME = "🎫 Tickets"
+TICKET_OWNERS = {}
+
+def _ticket_owner_from_channel(channel):
+    if channel and channel.name and channel.name.startswith("ticket-"):
+        try:
+            return int(channel.name.split("-", 1)[1])
+        except (ValueError, IndexError):
+            return None
+    return None
+
+def _is_ticket_channel(channel):
+    if not channel or not isinstance(channel, discord.TextChannel):
+        return False
+    if channel.name.startswith("ticket-"):
+        return True
+    return bool(channel.category and channel.category.name == TICKET_CATEGORY_NAME)
+
+def _ticket_menu_embed():
+    embed = discord.Embed(
+        title="🎫 Support Tickets",
+        description=(
+            "Need help from the staff team?\n\n"
+            "Click the button below to **open a private ticket**. "
+            "A moderator will assist you as soon as possible.\n\n"
+            "⚠️ **WARNING**\n"
+            "Tickets are reserved for real support requests. "
+            "Opening unnecessary tickets or abusing this system may result in "
+            "a **penalty (warning / mute / ban)**."
+        ),
+        color=discord.Color.blue()
+    )
+    embed.set_footer(text="Tickets are handled by our moderators.")
+    return embed
+
+async def _ticket_menu_posted():
+    try:
+        doc = await config_collection.find_one({"_id": "ticket_menu"})
+        return bool(doc and doc.get("posted"))
+    except Exception:
+        return True
+
+async def _set_ticket_menu_posted():
+    try:
+        await config_collection.update_one({"_id": "ticket_menu"}, {"$set": {"posted": True}}, upsert=True)
+    except Exception as e:
+        print(f"Ticket menu save error: {e}")
+
+class TicketCloseButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="🔒 Close Ticket", style=discord.ButtonStyle.danger, custom_id="ticket_close")
+
+    async def callback(self, interaction: discord.Interaction):
+        channel = interaction.channel
+        owner_id = TICKET_OWNERS.get(channel.id) if channel else None
+        if owner_id is None:
+            owner_id = _ticket_owner_from_channel(channel)
+        is_mod = interaction.user.guild_permissions.manage_messages or interaction.user.guild_permissions.administrator
+        if not (is_mod or interaction.user.id == owner_id):
+            return await interaction.response.send_message(
+                "❌ Only the ticket owner or a moderator can close this ticket.", ephemeral=True
+            )
+        try:
+            await interaction.response.send_message("🔒 **This ticket is being closed. Thank you for reaching out!**")
+        except Exception:
+            try:
+                await interaction.response.defer()
+            except Exception:
+                pass
+        await asyncio.sleep(2)
+        TICKET_OWNERS.pop(channel.id, None)
+        try:
+            await channel.delete()
+        except Exception:
+            pass
+
+class TicketCloseView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(TicketCloseButton())
+
+class TicketOpenButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="🎫 Open a Ticket", style=discord.ButtonStyle.primary, custom_id="ticket_open")
+
+    async def callback(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        user = interaction.user
+
+        existing = discord.utils.get(guild.channels, name=f"ticket-{user.id}")
+        if existing:
+            return await interaction.response.send_message(
+                f"❌ You already have an open ticket: {existing.mention}", ephemeral=True
+            )
+
+        category = discord.utils.get(guild.categories, name=TICKET_CATEGORY_NAME)
+        if not category:
+            try:
+                category = await guild.create_category(TICKET_CATEGORY_NAME, position=len(guild.categories))
+            except discord.HTTPException:
+                category = discord.utils.get(guild.categories, name=TICKET_CATEGORY_NAME)
+                if not category:
+                    return await interaction.response.send_message(
+                        "❌ Failed to create the ticket category. Please try again later.", ephemeral=True
+                    )
+
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False, send_messages=False),
+            user: discord.PermissionOverwrite(
+                view_channel=True, send_messages=True, read_message_history=True,
+                attach_files=True, embed_links=True, add_reactions=True
+            ),
+            guild.me: discord.PermissionOverwrite(
+                view_channel=True, send_messages=True, manage_messages=True,
+                manage_channels=True, read_message_history=True, embed_links=True,
+                attach_files=True, add_reactions=True
+            )
+        }
+        for role in guild.roles:
+            if role.permissions.manage_messages or role.permissions.administrator:
+                overwrites[role] = discord.PermissionOverwrite(
+                    view_channel=True, send_messages=True, read_message_history=True,
+                    embed_links=True, attach_files=True, add_reactions=True
+                )
+
+        try:
+            channel = await guild.create_text_channel(f"ticket-{user.id}", category=category, overwrites=overwrites)
+        except discord.HTTPException:
+            return await interaction.response.send_message(
+                "❌ Failed to create the ticket channel. Please try again later.", ephemeral=True
+            )
+        TICKET_OWNERS[channel.id] = user.id
+
+        embed = discord.Embed(
+            title="🎫 Ticket Opened",
+            description=(
+                f"Welcome, {user.mention}! A moderator will be with you shortly.\n\n"
+                "Please describe your issue in detail so we can help you as quickly as possible.\n\n"
+                "⚠️ **IMPORTANT**\n"
+                "Please do not open unnecessary tickets or spam this channel. "
+                "Abusing the ticket system may result in a **penalty (warning / mute / ban)**."
+            ),
+            color=discord.Color.blue()
+        )
+        embed.set_footer(text=f"Ticket ID: {channel.id} | Owner: {user}")
+        await channel.send(embed=embed, view=TicketCloseView())
+        await interaction.response.send_message(f"✅ Your ticket has been opened: {channel.mention}", ephemeral=True)
+
+class TicketView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(TicketOpenButton())
+
+@bot.hybrid_command(name="ticketsetup", description="Posts the ticket menu in the ticket channel.")
+async def ticketsetup(ctx):
+    if not (ctx.author.guild_permissions.manage_messages or ctx.author.guild_permissions.administrator):
+        return await ctx.send("❌ You don't have permission to use this command.", ephemeral=True)
+    channel = bot.get_channel(TICKET_CHANNEL_ID)
+    if not channel:
+        return await ctx.send("❌ Ticket channel not found. Check TICKET_CHANNEL_ID.", ephemeral=True)
+    await channel.send(embed=_ticket_menu_embed(), view=TicketView())
+    await ctx.send(f"✅ Ticket menu posted in {channel.mention}", ephemeral=True)
+
+@bot.hybrid_command(name="close", description="Closes the current ticket channel. Moderators and the ticket owner can use this.")
+async def close_ticket(ctx):
+    channel = ctx.channel
+    if not _is_ticket_channel(channel):
+        return await ctx.send("❌ This command can only be used inside a ticket channel.", ephemeral=True)
+    owner_id = TICKET_OWNERS.get(channel.id)
+    if owner_id is None:
+        owner_id = _ticket_owner_from_channel(channel)
+    is_mod = ctx.author.guild_permissions.manage_messages or ctx.author.guild_permissions.administrator
+    if not (is_mod or ctx.author.id == owner_id):
+        return await ctx.send("❌ Only the ticket owner or a moderator can close this ticket.", ephemeral=True)
+    await ctx.send("🔒 **This ticket is being closed. Thank you for reaching out!**")
+    await asyncio.sleep(2)
+    TICKET_OWNERS.pop(channel.id, None)
+    try:
+        await channel.delete()
+    except Exception:
+        pass
+
+# ==========================================
 # Background loops
 # ==========================================
 @tasks.loop(minutes=30)
@@ -890,6 +1076,7 @@ async def on_ready():
         if not loop_job.is_running():
             loop_job.start()
     bot.add_view(RolesView())
+    bot.add_view(TicketView())
     try:
         state = await load_event_state()
         if state and state.get("active_channel_id"):
@@ -930,6 +1117,18 @@ async def on_ready():
             print("⚔️ Distro VS channel not configured yet — use ?setdistrochannel to set one.")
     except Exception as e:
         print(f"Distro VS state restore error: {e}")
+
+    # Post the ticket menu in the ticket channel once (persisted in DB so a
+    # restart never duplicates the menu message).
+    try:
+        if not await _ticket_menu_posted():
+            ticket_channel = bot.get_channel(TICKET_CHANNEL_ID)
+            if ticket_channel:
+                await ticket_channel.send(embed=_ticket_menu_embed(), view=TicketView())
+                await _set_ticket_menu_posted()
+                print("🎫 Ticket menu posted in the ticket channel.")
+    except Exception as e:
+        print(f"Ticket menu post error: {e}")
 
 @bot.event
 async def on_member_join(member):
@@ -2601,28 +2800,28 @@ async def neofetch(ctx):
         "          /m0OOOOOOOOOOOOOOOOOOOm/"
     ]
     ENDEAVOUROS_ASCII = [
-        "              YU$|[}|fvfrjn(",
-        "            UYU$n{]][1\\jrrxjtj",
-        "           JYUQX\\?]]??[1/jrjXrjr|",
-        "          JYYUUr]?][]??][)trrrfrjrf",
-        "         UYYYUv}??][]?]??]}(frrrjrrrj",
-        "        UYYYUX(?]]][[]?]]?][{\\rrrrrrrrr",
-        "       UYYYUYt]?]]][}]?]]]?][}(frrrrrrnr",
-        "      UYYYYUn[?]]]?[}[]?]]]?][}1trrrrrrrrn",
-        "     UYYYYUz1?]]]]?[}}]?]]]]?][}{/rrrrrxrrx",
-        "    UYYYYUY\\?]]]]]?]}}[]]]]]]?][}}/rrrrrrrnr",
-        "   UYYYYYUj]?]]]]]?]}}}]?]]]]]?]}}{trrrrrrrx",
-        "  YYYYYYUv}?]]]]]]?]}}}[?]]]]]?][}}1jrrrrrrr",
-        " YYYYYYUX)?]]]]]]]?]}}}[]]]]]]]?]}}}/rrrrrrr",
-        "YYYYYYUYt??]]]]]]]?]}}}[]?]]]]]]][}[\\xrrrrrr",
-        "YYYYYYUx[?]]]]]]]]?]}}}}]?]]]]]]?[[}fnrrrrrr",
-        "YYYYYUc{?]]]]]]]]]?[}}}}]????????[)funrrrrrr",
-        "YYYYUX|????????????[[[[[]?]][}{)|fuvvnrrrrrr",
-        "YYYYUx11{{{{{{{{{{1(||\\\\|\\\\/fjjrrnvvvxrrrrrr",
-        "YYUxrrrrrrjjjjjjjrnuvvvnrrrrrrrrxuvvnrrrrrrx",
-        "Ufrrrrrrrrrrrrrrxnvvvvuxrrrrrrrxuvvuxrrrrnj",
-        "xrrrrrrrrrrrrrxnuvvvvuxrrrrrrrxuvvvuxrrrx",
-        "xrrrrrrrrrrxxnuvvvvvuxrrrxxtrrxuvvvvu"
+        "                \"}MU[,",
+        "                _WB$Bkc],",
+        "               -a@W&%@@Mmx_",
+        "              ?q@%8W%88%8*qU(;",
+        "             [08%%%M8%%%%8MkwQr!",
+        "            {LoB8%%WW%%%%%8&*qZZni",
+        "           )Lq@8%%%WM8%%%%%8WWk0ZZxI",
+        "          (LQB%%%%%&MW%%%%%%%MW*ZQmO\\",
+        "         |QUWB%%%%%&MM8%%%%%%%MMMwQ0mJ~",
+        "        \\QYh@8%%%%%8MMW%%%%%%%8MMWwQQOm/",
+        "       tQYm@8%%%%%%8MMM8%%%%%%%8MMMZ00Qwz\"",
+        "      fQYL%%%%%%%%%8MMM&%%%%%%%%WMWo000QmJ,",
+        "     jQUU*B8%%%%%%%8MMMW%%%%%%%%8MM&wQ00QmX",
+        "    xQUUd@8%%%%%%%%8MMMM%%%%%%%%%W#&pL000Qmt",
+        "   nLUU0B%%%%%%%%%%8MMMM8%%%%%%8%&W8OCO0000Q",
+        "  uLYUJW%8%%%%%%%%%&#MMM8%8%%%BB@8aOUC000QZC",
+        ";zOLQCo$BBBBBBBBBBB8W&&&B@BB8&#adOUUUCQ0ZwUi",
+        "-()||YMo#####M####*kbdpqdpqmZO0QQJUUJ0wOc?",
+        "   \":QQQ0000000000JUUUUJQLQQQQ0O0LQLCz)l",
+        "    XZQ000000000QCUUJJCOZZmmwmZLzj1+:",
+        "   \\w0OOOZZZZZZ0LLLCJJLJXvr/1-i,",
+        "  <OCCUYXcuxj\\){]-+>!I,",
     ]
     GARUDA_ASCII = [
         "                   -trjt\\){[?_++_l",
@@ -2718,27 +2917,27 @@ async def neofetch(ctx):
         "              l~-][}}}}}}[]-<I"
     ]
     PARROT_ASCII = [
-        "               I!><~~~~~<>!I",
-        "          ;i~__--__________-__~i;",
-        "        <_-___+~~+______+++++___-_<I",
-        "     I+-_+++_+_?}?<>><~+______++++_-_!",
-        "    ~-_++___<\\$$$$qUx\\}-<<~~++_____+_-_I",
-        "   __+______>x$bb$$$$$$$bu{}?_+~~+++_+_->",
-        "  -_+_______<\\v<</b$$$$$$$mnnj/({]-_++++_<",
-        " __+_________~<__<<O$$$$$$$qxxxrjt\\(1}]-_-!",
-        "!-+________________<L$$$$$$$anfjf/\\\\((1{}]?",
-        "~________________+_+~jzL$$$$$$c/f/\\|()1{[]]>",
-        "+____________________<>IU$$$$$$U\\t\\|()1{[]?~",
-        "<_+___________________-<n$$$$$o$m\\\\|()1{[]?<",
-        " _+____________________</$$$$dtXbwt|()1{[]]l",
-        " <_+___________________~1$$$$qff\\nx|()1{[[-",
-        "  +_+__________________+_$$C$mfjf\\\\|()1}[[",
-        "   ~-++_________________<bhfQLfjft\\|(){{}I",
-        "    !__++++_____________iCZxnxrjft\\|))([",
-        "      >_-_+++___________<\\Uunxrjt/\\\\\\1>",
-        "        !+_-___+++++_____~1uuxrjjj/}>",
-        "           l<+____________+?fuxt1~",
-        "                !i<~+++~~~<!I>l"
+        "             ,!~-[{11))1{]-~!,`",
+        "         ,>?)|\\//\\\\\\\\\\\\\\\\\\\\\\\\|1]>,",
+        "      `>}\\//\\|||(||\\||||||||||\\//\\1<\"",
+        "     <)/\\||||||\\t\\((((||||\\\\||||||\\/|-^",
+        "   ;1/\\||||\\(j#B$WpLcrt|(((||||||||||/|<",
+        "  i\\\\(||||||(c$kk$$$$$BMkXrf/||||||||||/[`",
+        " !\\\\|\\||||||(xX)(rb$B@$$$$qUUXvxjt/\\|||(/{",
+        "\"(\\|||||||||||(\\|((Z$@@B@@$dYUYXzcunrft/\\/?",
+        "_\\||||||||||||\\||\\\\(0$$$$@$$oUzzcvuunxrjft/I",
+        ")||||||||||||||||||\\(uU0&$@@$WUczvunxxrjftt]",
+        ")|||||||||||||||||||\\((1C$@$@$@Qucvnxxrjftt{",
+        "}|||||||||||||||||||||\\(z$@$$M*$wuuuxxrjftt}",
+        ">\\|||||||||||||||||||||(x$@@$bcJhqvnxxrjftt+",
+        " }/(||||||||||||||||||||tB$@$dXzvYznxxrjtf(`",
+        " \")/|||||||||||||||||||||W&0@qzXcvuuxxrfffl",
+        "  \"1/||||||||||||||||||\\(baXZOzzccuuxrjrf>",
+        "   `-\\/|(||||||||||||||\\(QwUUYYzzcunxxn\\I",
+        "     ;[\\/\\||||||||||||||(n0JUYXzcvuvvr_",
+        "       :_)//\\\\||||||||||||jJJYXXXYv/_^",
+        "          I+}(|\\/\\\\\\\\\\\\\\\\\\|tzJYu/?;",
+        "             ^;>_]{1)((()1}?+_i^",
     ]
     NOBARA_ASCII = [
         "  <fYQ0QUr_   +1fuYUCJUJYXnt}~",
@@ -2784,24 +2983,24 @@ async def neofetch(ctx):
         "/nvvnj/1-!      ]nQOO0f"
     ]
     VOID_ASCII = [
-        "                !<+_----_+<!",
-        "            i_-??????????????-+i",
-        "             <????-_~~~~_-???-???_l",
-        "               iI          I<-?--?]_",
-        "      1X|                     l-?--?]i",
-        "     )UcYz\\                     <]---?i",
-        "    <XccvY/        >++~<         !-_?]}",
-        "v*bb$wuccr I)ffxOaqZOp$*p|Icad$11*a$p00qhkq\\",
-        " Q$$$$qvCUrf-C$$$L-_~b$$$uz$$$C[$$$$}+_h$$$$",
-        "  z$$$$bpv  }$$$d_[{p$$$CY$$$m?$$$$)?)b$$$b<",
-        "   j$bCXvx   vmwLCOdamY1{hqwQ LdZqwQOqawu?",
-        "    izuccY\\        Il!!i!        !---__",
-        "     1UcccYt                     >?]-]!",
-        "      }YzcvXc}                     i-!",
-        "       >xYXvcYzf[i        i[|!",
-        "         -rXYzcXYXcuxrrxucXXXYf<",
-        "           !{jcXXXXXXXXXXXXXzvx1",
-        "               <[|fxuvvuxf|[<"
+        "              \"I>+-][[[[]-+>I\"",
+        "            <][}}}}}}}}}}}}}}[?<:",
+        "            ,+}}}}[?-__-?]}}}[[}}?!",
+        "       :      \"<l,`      `,l+[}[[}{];",
+        "      |CtI`                  `!]}[[}{<",
+        "     \\0ULCf\"                    +{[[[{<",
+        "   `+LUJUQr \"  \"^ :<--_+l\" `    `>[][}1I  `^",
+        "v*bbWdYJJv I(ffxOapmZd#*dticodM11*oMdOOpkkq\\",
+        " Q$$$$bUOCrf-C@$$Q[]-k$$$vY$$$C[$$$M1??a$$$@",
+        " ^z$$$$hkz`;}$$$b]{)p$$@LJ$$$m?$$$8|[|b$$$b<",
+        "  ^f#hOCUc` ,vmwQCZdowU|(hqwQ;LdZqq0Zpowu? `",
+        "   ,<LYJJLf `^``  \"li<><>```^  ^ >[[[?]\",^",
+        "     (0UJULr,                   `~[}[{>",
+        "      )QCUULU); ``        ``      `>[i",
+        "       <cQCUULJx{<:^    ^;<1t> `",
+        "       ` ]vLQCJCLLJXcvvcXJLLLLn+",
+        "         ` i(uUCCCCCCCCCCCCCCUc|\"",
+        "           `` ;+1tncXYYXcnt1+: ^",
     ]
     SLACKWARE_ASCII = [
         "             ~?)\\tfjjjjfft/|{?i",
@@ -2826,117 +3025,117 @@ async def neofetch(ctx):
         "              l+[)\\fjrrjf\\)]~!"
     ]
     FREEBSD_ASCII = [
-        "fpbqQv)i         I~[1(||)[_!         <)uCZOf",
-        "q#ao*$**kc  I}nLqho*$$$$$*ohhwc_ l(Xqa$$***a",
-        "1$haha$wf1j0a$$$*aaahhhhhhaax[rXZo$$*ahhah$|",
-        " v$k$b(_nb$*ahhhaaaaaaaaaaah {oo*ahhaaaah$c",
-        "  Y$z!ro$ohhaaaaaaaaaaaaaah$v_o#hhaaaaah$U",
-        "   ?<w$ahaaaaaaaaaaaaaaaaaah$X}0$$ahhha$n",
-        "   <**haaaaaaaaaaaaaaaaaaaaah$pjfCk$$$#|f/",
-        "  laohaaaaaaaaaaaaaaaaaaaaaaaho$wu||t/  k$-",
-        "  C$haaaaaaaaaaaaaaaaaaaaaaaaaah*$aOc/|Jh*q",
-        " i*aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaha*$$$$ah$1",
-        " )$haaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaahhhhah$z",
-        " |$haaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaah#U",
-        " ]$haaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaah$x",
-        "  boaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaao<",
-        "  /$haaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaah$z",
-        "   U$haaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaah$w",
-        "    U$ahaaaaaaaaaaaaaaaaaaaaaaaaaaaaahh$m",
-        "     fo$ahaaaaaaaaaaaaaaaaaaaaaaaaahh*$c",
-        "      iJ*$ohhaaaaaaaaaaaaaaaaaaahha$$O-",
-        "        <ck$$*ahhhaaaaaaaaahhha*$$aJ?",
-        "           }cwa#$#*oaaaaao*#$$aqY);",
-        "              i}rY0qbaaakqOUx1<"
+        "n#&*pU/< ^   \"\" ^!_{|tft\\1?i^ \"  `\"^`~/Uwkbn",
+        "*@%B@@@@&CI !(Xq*8B@@@@@@@B%8aC? i/QoB@@@B@B",
+        "|$8%8B$on|vdB$$@BB%%%%%%%%%Bz1cQkB$$B%%%%8$f",
+        "`U$&$Wt?YW$@%88%%%%%%%%%%%B8 (BB@%8%%%%%8$C",
+        "  0$L>vB$B8%%%%%%%%%%%%%%%%@J?B@8%%%%%%8$O",
+        "  `[~o$%8%%%%%%%%%%%%%%%%%%%$Q)d@@B%88%$X`",
+        "  ^~@@8%%%%%%%%%%%%%%%%%%%%%8$#unw&@$$@fur^",
+        "  iBB8%%%%%%%%%%%%%%%%%%%%%%%8B$oYffxr;`&$[^",
+        "  w@8%%%%%%%%%%%%%%%%%%%%%%%%%%%@$%kJrfZ%Bo`",
+        "^<@%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%@$$$@%8@\\",
+        "\"\\$8%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%88%%%@C",
+        ",f$8%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%@O",
+        "\"{$8%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%@z",
+        " \"WB%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%B+",
+        " ^r$8%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%8$L^",
+        "   Z$8%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%8@o^",
+        "    Z$%8%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%8$h:",
+        "     nB@%8%%%%%%%%%%%%%%%%%%%%%%%%%%8@$C",
+        "     \">Z@$B88%%%%%%%%%%%%%%%%%%%%8B@$b]^",
+        "      ` +C&$$@B%%%%%%%%%%%%%%%%B@$%Z[ ^",
+        "        ^^,)Ca%@@@@BB%%%BB@@@@B*0/I`^",
+        "           \"^ >(v0do&%BB&*kZz\\+^^\"",
     ]
     GHOSTBSD_ASCII = [
-        "             <1jzLOmwwmOCzj{>",
-        "         i\\YwkaaahhkkkkhhhaakmX(!",
-        "       )Qh*akbbbbbbbbbbbkkkkkho#hC{",
-        "     |qohbdbbbbbbbbbkhkdwOLCJJC0daom1",
-        "   i0*kdbbbbbbbbbkhbmCzvzYLOwwUc0bdh*C;",
-        "  ]hhdbbbbbbbbbhkwUnxcLqkahbwCXLqbbbdab~",
-        " _abdbbbbbbbbhb0vfnCwkbLQQJYYCwbkbbbbdkki",
-        " whdbbbbbbbkk0n/n0dhkbpJUYcXmhkbbbbbbbdhZ",
-        "fadbbbbbbbhqv\\rQbhbdbkhpLzX0dbbbbbbbbbbd*{",
-        "OhbbbbbbbhZf\\XdhbbkhdOYunJphbbbbbbbbbbbbaX",
-        "pbbbbbbbkmt\\JkkkhkmJcnxYwhbbbbbbbbbbbbbbhL",
-        "Ohbbbbbbhv|uakdmJvucccJQLwbbbbbbbbbbbbbbaY",
-        "jadbbbbbhz|tnnjjcLJvxcYCmbbbbbbbbbbbbbbd*) I",
-        " qkbbbbbbbLXzJZdZvjnYOdhkbbbbbbbbbbbbbdhw",
-        " ?obbbbbbbhaohmvtuLqkkbbbbbbbbbbbbbbbdkh< I",
-        "  {ahdbbbkhqJx\\x0bhkbbbbbbbbbbbbbbbbdhk- I",
-        "   ~mobdbpXt|jLbhbbbbbbbbbbbbbbbbbdk*0! I",
-        "     tdoa0rnJdhbbbbbbbbbbbbbbbbdbh*q|  I",
-        "       \\Oa#ahbddbbbbbbbbbdddbkaohQ)",
-        "         ~fLdaoooahhhhhhaoooapC/<",
-        "             +)rzJQOZZOQJcj1~",
-        ""
+        "          ^ ,+|vLwbaaohbwCv(~,",
+        "       ^ <j0a&%B%88&&&&&8%%%&aQti",
+        "     ^\"/q8@B&WMMMWWWWWWW&&&&&8@$8m(^ ^",
+        "     fo@%WMMWWWWWWWW&8&MokbddddkM%Bh|  ,",
+        "  `<d@&MMWWWWWWWW&8ModwwwqbhoopwkWM8@wl :",
+        " `{8%MWWWWWWWWW8&opmmwb*&%8Wodpd*WWWMBM_ ;",
+        "`?BWMWWWWWWWW8WkwZmd*&Wdbkdpqbo&&WWWWM&&< ;",
+        ",o8MWWWWWWW&&kZOmkW8&&#dpqwqo8&WWWWWWWM%k ^:",
+        "uBMWWWWWWW&#mOZkW8WMW&&MbwqkMWWWWWWWWWWM@|`I",
+        "d8WWWWWWW8aOOwW&MW&8Mhpmmd#8WWWWWWWWWWWMBL`:",
+        "*WWWWWWW&o0Od&&&8&odwmmq*&&WWWWWWWWWWWWM%q ,",
+        "b8WWWWWW8m0m8&Mopmmwwwdbb*WWWWWWWWWWWWWMBQ :",
+        "vBMWWWWW&w0OmmZOwbdwZwqdoWWWWWWWWWWWWWWM@\\`l",
+        ":*&MWWWW&WbqwpaMhmZmqkM8&WWWWWWWWWWWWWM8a ^I",
+        "`}@WMWWWWW&8B8omOmb*&8&WWWWWWWWWWWWWWM&%+ !^",
+        "``(%8MWWW&8#dZOZkW8&WWWWWWWWWWWWWWWWM%&] l\"",
+        "  `_h@&MM#qOOObW8WWWWWWWWWWWWWWWWMM&@di l\"",
+        "  ` ^x#@%h0ZdM8WWWWWWWWWWWWWWWMMW8@*t  l^",
+        "      ;jb%$B%WMMMMWWWWWMMMMMM&%@8p/, ;:",
+        "        `_uw#%@@B%%8888%%B@@%*mx+  ,:",
+        "            I?\\vCmpbkkbpZCv\\-;  `,\"",
+        "                  `\"\"\"\"^     ^\"^",
     ]
     OPENBSD_ASCII = [
-        "                 I   I  -/",
-        "               ? r} _Y){uv1|c   [",
-        "               uv/x[jvXr-~/Cwu/fc",
-        "          i |1\\xcji\\<<I<n<I<t}\\}vw\\   I",
-        "          cv{X+]_  ?( I>]<+l>n]<1zxnjn!",
-        "       >x-(pU-I_|>I[  )<  {i +[l!([?d-",
-        "        !0_ [_ i)  _ ~    !! i}<1?t}uz",
-        "       n/X[!</_ }<     i  l !! Xn tQrL0",
-        "ijn([i l0C_~? 1i !  I  ;       ?(?/njwO{",
-        " I/Y1}\\?Y?[~  l      I         IIlfu?|)O)",
-        "   >X[!+l+[<?)  ! ~_>-<   I I  <i Cc)1\\fO1",
-        "     U[ {Ui]|Ii) ]r I}/; ! lII_ >)u| >tc0/x?",
-        "     }Q|(fcc+ (-}z|}(~ I~  [I!+ _-lL}+Xv)[f-",
-        "     ~x- {Yc ]} >?-j  }l i[  <\\+-x/1Uq\\",
-        "          (J1u\\?+|; __? i<_I]\\+~?\\\\Oz!",
-        "         I} ~c)r[|/-?t- )c}i{x[1CQf)t+",
-        "               YU\\wtt)CXn\\1UY/Cz<[v",
-        "               }  [ nbiO[vQ~O}+z",
-        "                    ~~ ; if"
+        "               \" !\" ^! I{ul     ^",
+        "               1 Y|I[qj/QO/r0 ^^(",
+        "          \";I\"\"C0vOxQwbOnjCo%0cY0,\"",
+        "         :+^rtuQq0\\Utt|/Zt|fLzCzm&n  :!",
+        "       \"  00tdjnf11xX))\\x/f|/Zntzd0LUJ<",
+        "       _U1x$hj)fX\\)n{{z/}1v|1fu\\\\Yvv$}",
+        "        <*x1nf{|c)1f{t{11}(({|u/XnLcwZ\"",
+        " \"   \",Cvqu(/Jf{n/}{1{{|{}){(|}bQ<XaO**:",
+        "~X0v/~,iaojtr1v|}(}1)}{1}{1{11{xv(nLOW*/\"",
+        ":ivkUcz(pxnt1)(11{}1[)[{{{{1}1)(|/LmvJY&f;",
+        "  ,+pctx\\tn/rz11(}tf\\j/1{}){){{/\\1apUUCQM/\"\"",
+        "   \"Ibv(ck\\xX)|z{xQ{)uJ)}(}()(f1/zmU(tLbWLJ{",
+        "    :|MJxzdqt1zjupYuzt1)t}{n(|f(jx/*cxdQj/X}",
+        "     ?J}\"/wq(xu{/rjL1}u(1|x1)tUjrOJXh%x\"\" ,^",
+        "      \"\"` rkrmCxfX)}ffr1|/j(xUjjnJC8Z>\"",
+        "         !\\,-OjLvUJxxJj)zwu/vZvXoMXfc]",
+        "          ^ ;^!wpn%YJXobmJzakJ*w_(Q  ,",
+        "               \\ ^(;J$~#|O*-*|]O , `",
+        "               ^  ^^??Il\"~zlI,: :",
     ]
     DRAGONFLY_ASCII = [
-        "                   I<_][[?+i    -",
-        "          $]    +|vCOmqwqwmQYr{i    r$     }",
-        "     _OOYx)~  [zmdbkhhd/Ykhkkbp0ji  ?\\vCmz",
-        "      c$$$$hLxnzLqhahX/ ~rOaabmJvxvw*$$$k)",
-        "       1Q$$$$$$aOYzUO)~  _v0XzCq$$$$$$kc~",
-        "         +|Ld*$$$$$bQr>!!-XZo$$$$$awc[> $",
-        "    ;j$$$  ncvuvczYUUx|!-tcJYXcvuvvc|  $$h}",
-        "    l[|fx/fYJCCJUYXXct)!_|xXXXYUJCCJc\\jr/)-",
-        "    ?m$$$$$$$$$$$$$hZv-~+1Jq*$$$$$$$$$$$$aX",
-        "     ?jUZdkkkbqOCYXUOO>i |wLYXULmpbbkbq0c|>",
-        "     c   l< ltU0wdhaak+l xoaakpZLz} l>    +",
-        "         l>  I|Jwbkkhb-i nahkbdZc?  x>",
-        "               I[jY0wq-! npmLc\\+",
-        "                   >-}I! ~[+!",
-        "                  $    l     [",
-        "                       l",
-        "                       ;",
-        "",
-        "",
-        "",
-        "",
-        "",
-        ""
+        "      ``      \"^:1c0qdbbbbdwCr_ ,`      ``",
+        "     ,<!, `^\" {0bqLznrftfjxuYOddzi\"^^ `;>i",
+        "    !p~[|/\\])ooUj///t//Zc\\/t///xO&0-)\\\\(~fL^",
+        "     fr ; :<|YzXcxt\\\\zQ@aCx\\/fnzzXv]!`\";lU<",
+        "     ^?c(:,:;: !{xXYnd****CuUzt-:`;;: <rn,^",
+        "      ^ ~uQ)+I ^:: !}nhbhw|-,^:, \"!?r0(I^",
+        "    ``  Ij$LLCJYzur/\\uzamvr|fncXUJLCb$^^  ^",
+        "    <}(\\|vYft/tfrxxrrYU*qYcjxxrjf//txJf||)?l",
+        "  ^_d?\" `,;,\",:;:, ;-jZwwL1<^^:;:,\"\":;\"` ;rq",
+        "    I)\\)[_+<l<]1tnzXvnMd*wrzXcr\\}-ii~+-}|/]`",
+        "     ^ :>_+C$Zcunjt/\\\\hhMJ|//fruvXo@\\++!\" ^",
+        "        ``^`|apvt//tt/hd*J\\t///jJaw!\"``",
+        "            \"^jpkmUurtkk#UtxcLph0[``",
+        "              \" <tUZqw&b#aww0c1:^^",
+        "                `\"^ \"\"Qa#)\"` \"\"",
+        "                     :v*#!\"",
+        "                     \"jMoI",
+        "^                    \"|Wh\"",
+        "],                   ^]&d",
+        "~\"                   `<%m",
+        "`                     :BL^",
+        "                       %z\"",
+        "                      ^q|\"",
     ]
     NETBSD_ASCII = [
-        "                         >-1\\//|{?_<!;",
-        "        }-)]+<iii<+?}(/jnuxf(}?_~>!",
-        "         |}vcvvvvvvvvunnnunxf\\1?~ilI",
-        "          |_ruxxxxxnnvvur|?!",
-        "          l/~fuuuunxt)-l",
-        "           !j  IlI",
-        " II    II   <r      IIll    Ilil III;II",
-        " |vf   ?\\          }J- [X+ n|  { }J]  ~f(!<<",
-        " {I[v} ;] ~i-I!f}l ~U? |x  tv|~  _U<   ;Yx",
-        " 1  Ijr1}f/ ]_+X>  ~U_ >x/   ?nz ~U<    Yr",
-        " t<   -c{(j<I iX[  }J[ lv\\[}  [cl[J{  i/|",
-        " lI       l~i  l>    !Il   ii!!  lI!III",
-        "                  i\\",
-        "                   \\XI",
-        "                    \\XI",
-        "                     /Xi",
-        "                      jv"
+        "           \"\"\"\"^\"\"\"\"^  ,<{rJmpqOYxt)]~;",
+        "        ftQu/)}[})/xX0poW8Mb0Xnf\\1->;",
+        "        lccB@BBBBBBBB8&W&8&*kmJn\\}-+>I",
+        "        ^!c\\#&####MM&%B8o0r?: ^\"\"^^",
+        "         ^<Y1h8888&*dLj-, \"",
+        "          ^+L!!__+!^ \":,",
+        ">++   ;++! ^]0:\"^  !i><~^   >~_<\"i>>i>i\"  l;",
+        ";Z%b>\" xm ^ ::, ^  f#( th{ mc \"r;f#/\"i[Cv+]?",
+        "^Y_cBX ~n |}r_]kX_ }o\\:cZi Jqz[^,)*]\" \"iaO",
+        "^UI;+h*UXbp<uf/$1 ^}o{ -OY:\"l|mk!}*]\" \"la0",
+        ";d)   f@Y0a(+i}$c; fMt <pXtf\" /d~tMr\";_Uz;",
+        "<__,  \"ii -([: ?{i:!i+>~I  __~~ \"~>+>i>,",
+        "          ^\"^   ^^-XI:",
+        "                   Xh>",
+        "                    Xh>^",
+        "                     Uh_",
+        "                      Lq\"",
     ]
     REACTOS_ASCII = [
         "           I>~~+~<<~-][?<",
@@ -3009,52 +3208,6 @@ async def neofetch(ctx):
         1522211033073324234: ("OpenBSD", OPENBSD_ASCII),
         1522211796532854826: ("DragonFly BSD", DRAGONFLY_ASCII),
         1522211599744499834: ("NetBSD", NETBSD_ASCII)
-    }
-    distro_role_mapping = {
-        1521868543799328808: ("Arch Linux", ARCH_ASCII),
-        1521870392472502344: ("Manjaro", MANJARO_ASCII),
-        1521870674669338654: ("EndeavourOS", ARCH_ASCII),
-        1521871074994950295: ("Garuda Linux", ARCH_ASCII),
-        1521871078308184074: ("Artix Linux", ARTIX_ASCII),
-        1522137195102867526: ("Black Arch", ARCH_ASCII),
-        1522143963904081920: ("CachyOS", CACHYOS_ASCII),
-        1521870173861056655: ("Debian", DEBIAN_ASCII),
-        1521870110552227910: ("Ubuntu", UBUNTU_ASCII),
-        1521868791942742026: ("Linux Mint", MINT_ASCII),
-        1521871399403393044: ("Kali Linux", KALI_ASCII),
-        1521871613958819860: ("Pop!_OS", POP_ASCII),
-        1521871816321404969: ("Zorin OS", UBUNTU_ASCII),
-        1521871679368986655: ("MX Linux", MX_ASCII),
-        1521871896117776468: ("Deepin", DEBIAN_ASCII),
-        1521872016901406720: ("Elementary OS", ELEMENTARY_ASCII),
-        1522137253856415784: ("Parrot OS", DEBIAN_ASCII),
-        1521870225228955798: ("Gentoo", GENTOO_ASCII),
-        1521872173688422420: ("Nobara", FEDORA_ASCII),
-        1521872360393670819: ("Fedora", FEDORA_ASCII),
-        1521872534117679206: ("Red Star OS", TUX_ASCII),
-        1521872635968098344: ("Void Linux", TUX_ASCII),
-        1534520300807520379: ("NixOS", NIXOS_ASCII),
-        1521872759691542588: ("Alpine Linux", TUX_ASCII),
-        1521873026776301608: ("openSUSE", OPENSUSE_ASCII),
-        1521873129868365964: ("Slackware", TUX_ASCII),
-        1534519999681658941: ("Chimera Linux", CHIMERA_ASCII)
-    }
-
-    win_role_mapping = {
-        1521909235594825941: ("Windows 11", WIN11_ASCII),
-        1521909403496742973: ("Windows 10", WIN10_ASCII),
-        1521909451739893982: ("Windows 8", WINDOWS_ASCII),
-        1521909341802725427: ("Windows 7", WINDOWS_ASCII),
-        1522212167393214514: ("Windows Vista", WINDOWS_ASCII),
-        1522212092663300248: ("Windows XP", WINDOWS_ASCII)
-    }
-
-    bsd_role_mapping = {
-        1521909235594825999: ("FreeBSD", BSD_ASCII),
-        1522211951709519872: ("GhostBSD", BSD_ASCII),
-        1522211033073324234: ("OpenBSD", BSD_ASCII),
-        1522211796532854826: ("DragonFly BSD", BSD_ASCII),
-        1522211599744499834: ("NetBSD", BSD_ASCII)
     }
 
     selected_linux = None
