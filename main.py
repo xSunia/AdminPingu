@@ -185,6 +185,8 @@ LEVEL_LOG_CHANNEL_ID = 1521880096854769785
 REMINDER_CHANNEL_ID = 123456789012345678
 EPIC_LEVEL_100_CHANNEL = 1510339895032418508
 
+ROLES_CHANNEL_ID = 1521868274240065597
+
 USER_ROLE_ID = 1510547520273649704
 MEDIA_ROLE_ID = 1521875919864856714
 
@@ -1173,6 +1175,34 @@ async def on_ready():
                 print("🎫 Ticket menu posted in the ticket channel.")
     except Exception as e:
         print(f"Ticket menu post error: {e}")
+
+    # Every startup/redeploy: wipe the roles channel, lock it (@everyone
+    # can't type — same as ?sudolock) and post a fresh role menu so the
+    # selection is always clean and available at <#1521868274240065597>.
+    try:
+        roles_channel = bot.get_channel(ROLES_CHANNEL_ID)
+        if roles_channel is None:
+            print(f"⚠️ Roles channel not found: {ROLES_CHANNEL_ID}")
+        else:
+            try:
+                await roles_channel.purge(limit=None)
+            except Exception as e:
+                print(f"  ⚠️ Roles channel purge failed: {e}")
+            try:
+                await roles_channel.set_permissions(
+                    roles_channel.guild.default_role, send_messages=False
+                )
+            except Exception as e:
+                print(f"  ⚠️ Roles channel lock failed: {e}")
+            role_embed = discord.Embed(
+                title="Choose Your OS & Hardware",
+                description="Select your preferred distributions and graphics drivers from the menus below.\n*(Pick any and as many OS roles as you like — no dual-boot limit anymore!)*",
+                color=discord.Color.dark_theme()
+            )
+            await roles_channel.send(embed=role_embed, view=RolesView())
+            print("🎭 Roles menu posted in the roles channel.")
+    except Exception as e:
+        print(f"Roles menu post error: {e}")
 
 @bot.event
 async def on_member_join(member):
@@ -2193,15 +2223,6 @@ async def undo(ctx, amount: int = 50):
         color=discord.Color.orange()
     )
     await ctx.send(embed=embed)
-
-@bot.hybrid_command(name="roles", aliases=["osroles", "distro"], description="Opens the OS/GPU role selection menu (mod).")
-async def roles(ctx):
-    role_embed = discord.Embed(
-        title="Choose Your OS & Hardware",
-        description="Select your preferred distributions and graphics drivers from the menus below.\n*(Pick any and as many OS roles as you like — no dual-boot limit anymore!)*",
-        color=discord.Color.dark_theme()
-    )
-    await ctx.send(embed=role_embed, view=RolesView())
 
 @bot.hybrid_command(name="sudolock", aliases=["lock"], description="Locks this channel (mod).")
 @commands.has_permissions(manage_channels=True)
@@ -3661,8 +3682,7 @@ async def shortcuts(ctx):
     )
     embed.add_field(
         name="🛡️ Moderation",
-        value="`?roles` → `osroles`, `distro`\n"
-              "`?sudolock` → `lock` | `?sudounlock` → `unlock`\n"
+        value="`?sudolock` → `lock` | `?sudounlock` → `unlock`\n"
               "`?mute` → `m`, `timeout` | `?unmute` → `um`\n"
               "`?clear` → `purge`, `c`\n"
               "`?undo` → `undohistory`, `cleanbotmsgs`\n"
@@ -3707,8 +3727,7 @@ async def help(ctx):
     )
     embed.add_field(
         name="🛡️ Moderation Commands",
-        value="`?roles` - Opens the role selection menu\n"
-              "`?sudolock` / `?sudounlock` - Locks/Unlocks a text channel\n"
+        value="`?sudolock` / `?sudounlock` - Locks/Unlocks a text channel\n"
               "`?mute <user> [h]` / `?unmute <user>` - Manages timeouts\n"
               "`?clear` - Mass deletes messages in a channel\n"
               "`?undo [amount]` - Deletes AdminPingu's own recent messages in this channel only, with a report\n"
