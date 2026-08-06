@@ -185,8 +185,6 @@ LEVEL_LOG_CHANNEL_ID = 1521880096854769785
 REMINDER_CHANNEL_ID = 123456789012345678
 EPIC_LEVEL_100_CHANNEL = 1510339895032418508
 
-ROLES_CHANNEL_ID = 1521868274240065597
-
 USER_ROLE_ID = 1510547520273649704
 MEDIA_ROLE_ID = 1521875919864856714
 
@@ -691,33 +689,42 @@ class RolesView(View):
             discord.SelectOption(label="Parrot OS", value="1522137253856415784")
         ]
         self.add_item(DistroSelect(placeholder="Debian & Ubuntu-based", options=deb_ubu_opts, custom_id="deb_ubu_menu"))
-        win_bsd_opts = [
+        fedora_opts = [
+            discord.SelectOption(label="Fedora", value="1521872360393670819"),
+            discord.SelectOption(label="Nobara", value="1521872173688422420"),
+            discord.SelectOption(label="Red Star OS", value="1521872534117679206")
+        ]
+        self.add_item(DistroSelect(placeholder="Fedora-based", options=fedora_opts, custom_id="fedora_menu"))
+        indep_opts = [
+            discord.SelectOption(label="Gentoo", value="1521870225228955798"),
+            discord.SelectOption(label="Void Linux", value="1521872635968098344"),
+            discord.SelectOption(label="NixOS", value="1534520300807520379"),
+            discord.SelectOption(label="Alpine Linux", value="1521872759691542588"),
+            discord.SelectOption(label="Slackware", value="1521873129868365964"),
+            discord.SelectOption(label="Chimera Linux", value="1534519999681658941")
+        ]
+        self.add_item(DistroSelect(placeholder="Independent", options=indep_opts, custom_id="indep_menu"))
+        suse_opts = [
+            discord.SelectOption(label="openSUSE", value="1521873026776301608")
+        ]
+        self.add_item(DistroSelect(placeholder="SUSE Family", options=suse_opts, custom_id="suse_menu"))
+        win_opts = [
             discord.SelectOption(label="Windows 11", value="1521909235594825941"),
             discord.SelectOption(label="Windows 10", value="1521909403496742973"),
             discord.SelectOption(label="Windows 8", value="1521909451739893982"),
             discord.SelectOption(label="Windows 7", value="1521909341802725427"),
             discord.SelectOption(label="Windows Vista", value="1522212167393214514"),
-            discord.SelectOption(label="Windows XP", value="1522212092663300248"),
+            discord.SelectOption(label="Windows XP", value="1522212092663300248")
+        ]
+        self.add_item(DistroSelect(placeholder="Windows Family", options=win_opts, custom_id="win_menu"))
+        bsd_opts = [
             discord.SelectOption(label="FreeBSD", value="1521909235594825999"),
             discord.SelectOption(label="GhostBSD", value="1522211951709519872"),
             discord.SelectOption(label="OpenBSD", value="1522211033073324234"),
             discord.SelectOption(label="DragonFly BSD", value="1522211796532854826"),
             discord.SelectOption(label="NetBSD", value="1522211599744499834")
         ]
-        self.add_item(DistroSelect(placeholder="Windows & BSD Family", options=win_bsd_opts, custom_id="win_bsd_menu"))
-        indep_opts = [
-            discord.SelectOption(label="Gentoo", value="1521870225228955798"),
-            discord.SelectOption(label="Nobara", value="1521872173688422420"),
-            discord.SelectOption(label="Fedora", value="1521872360393670819"),
-            discord.SelectOption(label="Red Star OS", value="1521872534117679206"),
-            discord.SelectOption(label="Void Linux", value="1521872635968098344"),
-            discord.SelectOption(label="NixOS", value="1534520300807520379"),
-            discord.SelectOption(label="Alpine Linux", value="1521872759691542588"),
-            discord.SelectOption(label="openSUSE", value="1521873026776301608"),
-            discord.SelectOption(label="Slackware", value="1521873129868365964"),
-            discord.SelectOption(label="Chimera Linux", value="1534519999681658941")
-        ]
-        self.add_item(DistroSelect(placeholder="Independent", options=indep_opts, custom_id="indep_menu"))
+        self.add_item(DistroSelect(placeholder="BSD Family", options=bsd_opts, custom_id="bsd_menu"))
         self.add_item(GPUSelect())
 
 # ==========================================
@@ -1088,11 +1095,8 @@ async def on_ready():
     for loop_job in (half_hourly_reminder, reset_daily_xp, daily_tech_news, sunday_xp_event, daily_distro_vs):
         if not loop_job.is_running():
             loop_job.start()
-    try:
-        bot.add_view(RolesView())
-        bot.add_view(TicketView())
-    except Exception as e:
-        print(f"View registration error: {e}")
+    bot.add_view(RolesView())
+    bot.add_view(TicketView())
     try:
         state = await load_event_state()
         if state and state.get("active_channel_id"):
@@ -1169,34 +1173,6 @@ async def on_ready():
                 print("🎫 Ticket menu posted in the ticket channel.")
     except Exception as e:
         print(f"Ticket menu post error: {e}")
-
-    # Every startup/redeploy: wipe the roles channel, lock it (@everyone
-    # can't type — same as ?sudolock) and post a fresh role menu so the
-    # selection is always clean and available at <#1521868274240065597>.
-    try:
-        roles_channel = bot.get_channel(ROLES_CHANNEL_ID)
-        if roles_channel is None:
-            print(f"⚠️ Roles channel not found: {ROLES_CHANNEL_ID}")
-        else:
-            try:
-                await roles_channel.purge(limit=None)
-            except Exception as e:
-                print(f"  ⚠️ Roles channel purge failed: {e}")
-            try:
-                await roles_channel.set_permissions(
-                    roles_channel.guild.default_role, send_messages=False
-                )
-            except Exception as e:
-                print(f"  ⚠️ Roles channel lock failed: {e}")
-            role_embed = discord.Embed(
-                title="Choose Your OS & Hardware",
-                description="Select your preferred distributions and graphics drivers from the menus below.\n*(Pick any and as many OS roles as you like — no dual-boot limit anymore!)*",
-                color=discord.Color.dark_theme()
-            )
-            await roles_channel.send(embed=role_embed, view=RolesView())
-            print("🎭 Roles menu posted in the roles channel.")
-    except Exception as e:
-        print(f"Roles menu post error: {e}")
 
 @bot.event
 async def on_member_join(member):
@@ -2217,6 +2193,16 @@ async def undo(ctx, amount: int = 50):
         color=discord.Color.orange()
     )
     await ctx.send(embed=embed)
+
+@bot.hybrid_command(name="roles", aliases=["osroles", "distro"], description="Opens the OS/GPU role selection menu (mod).")
+@commands.has_permissions(manage_messages=True)
+async def roles(ctx):
+    role_embed = discord.Embed(
+        title="Choose Your OS & Hardware",
+        description="Select your preferred distributions and graphics drivers from the menus below.\n*(Pick any and as many OS roles as you like — no dual-boot limit anymore!)*",
+        color=discord.Color.dark_theme()
+    )
+    await ctx.send(embed=role_embed, view=RolesView())
 
 @bot.hybrid_command(name="sudolock", aliases=["lock"], description="Locks this channel (mod).")
 @commands.has_permissions(manage_channels=True)
@@ -3676,7 +3662,8 @@ async def shortcuts(ctx):
     )
     embed.add_field(
         name="🛡️ Moderation",
-        value="`?sudolock` → `lock` | `?sudounlock` → `unlock`\n"
+        value="`?roles` → `osroles`, `distro`\n"
+              "`?sudolock` → `lock` | `?sudounlock` → `unlock`\n"
               "`?mute` → `m`, `timeout` | `?unmute` → `um`\n"
               "`?clear` → `purge`, `c`\n"
               "`?undo` → `undohistory`, `cleanbotmsgs`\n"
@@ -3711,83 +3698,57 @@ async def shortcuts(ctx):
     )
     await ctx.send(embed=embed)
 
-MODERATION_HELP = (
-    "`?sudolock` / `?sudounlock` - Locks/Unlocks a text channel\n"
-    "`?mute <user> [h]` / `?unmute <user>` - Manages timeouts\n"
-    "`?clear` - Mass deletes messages in a channel\n"
-    "`?undo [amount]` - Deletes AdminPingu's own recent messages in this channel only, with a report\n"
-    "`?warning <user> [reason]` - Gives a user a warning\n"
-    "`?warnings <user>` - Shows a user's warning history\n"
-    "`?clearwarnings <user>` - Resets a user's warnings to 0\n"
-    "`?ban <user> [reason]` / `?unban <id>` - Manages bans\n"
-    "`?setnewschannel` - Sets the channel for tech news\n"
-    "`?setdistrochannel` - Sets the channel for the AI Distro Showdown (every ~12h)\n"
-    "`?setjoinchannel` - Sets the channel for welcome banners\n"
-    "`?messagesendadminpingu` - Sets the channel for the automated rules reminder\n"
-    "`?fixlevels` - Recalculates everyone's level against the current XP curve\n"
-    "`?dbstatus` - Checks MongoDB connectivity and collection counts"
-)
-
-STATS_HELP = (
-    "`?stats [user]` - View a user's level and XP\n"
-    "`?customize` - Personalize your stats card font, color and background\n"
-    "`?leaderstats` - See the top 15 users in the server\n"
-    "`?serverinfo` - Display information about this server\n"
-    "`?shortcuts` - See every command's short alias"
-)
-
-FUN_HELP = (
-    "`?weather <city>` - Get the current weather\n"
-    "`?randomlinux` / `?whoami` / `?pythontip` - Tech stuff\n"
-    "`?neofetch` / `?cowsay <text>` / `?fortune` - Linux terminal fun\n"
-    "`?packagemap <action>` / `?distrobattle` - More Linux nerdery\n"
-    "`?uptime` - How long the bot has been running\n"
-    "`?tankfact` - Interesting facts\n"
-    "`?tea` - Brew some tea for someone\n"
-    "`?coinflip` / `?diceroll` / `?8ball` / `?joke` / `?gif` - Minigames\n"
-    "`?terminal` - Opens your own private Python sandbox terminal channel"
-)
-
-def _help_cover_embed():
+@bot.hybrid_command(name="help", aliases=["h", "commands", "cmds"], description="Lists all bot commands.")
+async def help(ctx):
     embed = discord.Embed(
         title="🐧 AdminPingu Command List",
         description="Every command works with **both** `?prefix` and `/slash`. Use `?shortcuts` to see every alias, "
-                     "and don't worry about typing the full name — a close-enough shortcut usually gets auto-detected too.\n\n"
-                     "📖 **Select a section with the buttons below:**\n"
-                     "**1** 🛡️ Moderation Commands\n"
-                     "**2** 📊 Stats & Utilities\n"
-                     "**3** 🎮 Fun & Random",
+                     "and don't worry about typing the full name — a close-enough shortcut usually gets auto-detected too.",
         color=discord.Color.dark_green()
     )
+    embed.add_field(
+        name="🛡️ Moderation Commands",
+        value="`?roles` - Opens the role selection menu\n"
+              "`?sudolock` / `?sudounlock` - Locks/Unlocks a text channel\n"
+              "`?mute <user> [h]` / `?unmute <user>` - Manages timeouts\n"
+              "`?clear` - Mass deletes messages in a channel\n"
+              "`?undo [amount]` - Deletes AdminPingu's own recent messages in this channel only, with a report\n"
+              "`?warning <user> [reason]` - Gives a user a warning\n"
+              "`?warnings <user>` - Shows a user's warning history\n"
+              "`?clearwarnings <user>` - Resets a user's warnings to 0\n"
+              "`?ban <user> [reason]` / `?unban <id>` - Manages bans\n"
+              "`?setnewschannel` - Sets the channel for tech news\n"
+              "`?setdistrochannel` - Sets the channel for the AI Distro Showdown (every ~12h)\n"
+              "`?setjoinchannel` - Sets the channel for welcome banners\n"
+              "`?messagesendadminpingu` - Sets the channel for the automated rules reminder\n"
+              "`?fixlevels` - Recalculates everyone's level against the current XP curve\n"
+              "`?dbstatus` - Checks MongoDB connectivity and collection counts",
+            inline=False
+    )
+    embed.add_field(
+        name="📊 Stats & Utilities",
+        value="`?stats [user]` - View a user's level and XP\n"
+              "`?customize` - Personalize your stats card font, color and background\n"
+              "`?leaderstats` - See the top 15 users in the server\n"
+              "`?serverinfo` - Display information about this server\n"
+              "`?shortcuts` - See every command's short alias",
+            inline=False
+    )
+    embed.add_field(
+        name="🎮 Fun & Random",
+        value="`?weather <city>` - Get the current weather\n"
+              "`?randomlinux` / `?whoami` / `?pythontip` - Tech stuff\n"
+              "`?neofetch` / `?cowsay <text>` / `?fortune` - Linux terminal fun\n"
+              "`?packagemap <action>` / `?distrobattle` - More Linux nerdery\n"
+              "`?uptime` - How long the bot has been running\n"
+              "`?tankfact` - Interesting facts\n"
+              "`?tea` - Brew some tea for someone\n"
+              "`?coinflip` / `?diceroll` / `?8ball` / `?joke` / `?gif` - Minigames\n"
+              "`?terminal` - Opens your own private Python sandbox terminal channel",
+            inline=False
+    )
     embed.set_footer(text="Arguments in [brackets] are optional, <angle brackets> are required. Try /help too!")
-    return embed
-
-def _help_section_embed(title, content, color):
-    embed = discord.Embed(title=title, description=content, color=color)
-    embed.set_footer(text="Select another section with buttons 1, 2 or 3 below.")
-    return embed
-
-class HelpSectionButton(discord.ui.Button):
-    def __init__(self, label, emoji, custom_id, section_embed):
-        super().__init__(label=label, emoji=emoji, style=discord.ButtonStyle.primary, custom_id=custom_id)
-        self.section_embed = section_embed
-
-    async def callback(self, interaction: discord.Interaction):
-        await interaction.response.edit_message(embed=self.section_embed, view=self.view)
-
-class HelpView(View):
-    def __init__(self):
-        super().__init__(timeout=300)
-        self.add_item(HelpSectionButton("1", "🛡️", "help_section_mod", _help_section_embed("🛡️ Moderation Commands", MODERATION_HELP, discord.Color.red())))
-        self.add_item(HelpSectionButton("2", "📊", "help_section_stats", _help_section_embed("📊 Stats & Utilities", STATS_HELP, discord.Color.blue())))
-        self.add_item(HelpSectionButton("3", "🎮", "help_section_fun", _help_section_embed("🎮 Fun & Random", FUN_HELP, discord.Color.gold())))
-
-@bot.hybrid_command(name="help", aliases=["h", "commands", "cmds"], description="Lists all bot commands.")
-async def help(ctx):
-    if ctx.interaction:
-        await ctx.send(embed=_help_cover_embed(), view=HelpView(), ephemeral=True)
-    else:
-        await ctx.send(embed=_help_cover_embed(), view=HelpView())
+    await ctx.send(embed=embed)
 
 @bot.listen()
 async def on_command_error(ctx, error):
