@@ -1322,8 +1322,8 @@ async def on_ready():
         print(f"Distro VS state restore error: {e}")
 
     # Apply channel settings: 3s slowmode everywhere, open media to everyone
-    # in the media channels, and let everyone type in the epic milestone
-    # channel (the bot's media gate enforces Level 10+ GIF-only there).
+    # in the media channels, and let everyone type/post media in the epic
+    # milestone channel (media gate devre dışı bırakıldı — her tür medya serbest).
     try:
         for channel_id in MEDIA_CHANNEL_IDS + [EPIC_LEVEL_100_CHANNEL]:
             channel = bot.get_channel(channel_id)
@@ -2084,24 +2084,26 @@ async def on_message(message):
     # Media gate: everyone may post media in MEDIA_CHANNEL_IDS. In the epic
     # (level milestone) channel only Level 10+ members may post media, and
     # only GIF media at that. Everywhere else media is left to Discord perms.
-    if message.channel.id not in MEDIA_CHANNEL_IDS and message.channel.id == EPIC_LEVEL_100_CHANNEL:
-        if _message_has_media(message):
-            is_mod = message.author.guild_permissions.manage_messages
-            has_media_role = any(r.id == MEDIA_ROLE_ID for r in message.author.roles)
-            if not (is_mod or has_media_role):
-                try:
-                    await message.delete()
-                    await message.channel.send(f"⚠️ {message.author.mention} Only **Level 10+** members can post media in this channel!", delete_after=5)
-                except Exception:
-                    pass
-                return
-            if not _is_gif_media(message):
-                try:
-                    await message.delete()
-                    await message.channel.send(f"⚠️ {message.author.mention} Only **GIF** media is allowed in this channel!", delete_after=5)
-                except Exception:
-                    pass
-                return
+    # DISABLED: the epic channel now allows any media (resim/video gibi her tür
+    # medya serbest). Geri açmak için aşağıdaki bloğun yorumunu kaldır.
+    # if message.channel.id not in MEDIA_CHANNEL_IDS and message.channel.id == EPIC_LEVEL_100_CHANNEL:
+    #     if _message_has_media(message):
+    #         is_mod = message.author.guild_permissions.manage_messages
+    #         has_media_role = any(r.id == MEDIA_ROLE_ID for r in message.author.roles)
+    #         if not (is_mod or has_media_role):
+    #             try:
+    #                 await message.delete()
+    #                 await message.channel.send(f"⚠️ {message.author.mention} Only **Level 10+** members can post media in this channel!", delete_after=5)
+    #             except Exception:
+    #                 pass
+    #             return
+    #         if not _is_gif_media(message):
+    #             try:
+    #                 await message.delete()
+    #                 await message.channel.send(f"⚠️ {message.author.mention} Only **GIF** media is allowed in this channel!", delete_after=5)
+    #             except Exception:
+    #                 pass
+    #             return
 
     global last_activity_time
     last_activity_time = time.time()
