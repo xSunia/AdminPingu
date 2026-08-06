@@ -18,6 +18,7 @@ import traceback
 import io
 import base64
 import sys
+import ctypes
 import logging
 from logging.handlers import RotatingFileHandler
 from unidecode import unidecode
@@ -1247,8 +1248,15 @@ ALLOWED_TERMINAL_MODULES = {
     "secrets", "uuid", "base64", "array", "keyword", "numbers", "colorsys",
     "gettext", "locale", "timeit", "types", "warnings", "weakref", "abc",
     "contextlib", "reprlib", "graphlib", "zoneinfo", "ipaddress", "html",
-    "csv", "queue", "hashlib", "struct"
+    "csv", "queue", "hashlib", "struct", "ast", "io", "zlib", "binascii",
+    "codecs", "hmac", "traceback", "email", "xml", "argparse", "getopt",
+    "tokenize", "token", "symbol", "stringprep", "mimetypes", "plistlib",
+    "sndhdr", "wave", "audioop", "binhex", "turtle", "tkinter", "traceback",
+    "colorsys", "unicodedata", "textwrap", "difflib", "pprint", "reprlib",
+    "enum", "typing", "dataclasses", "contextlib", "functools", "itertools"
 }
+
+TERMINAL_STATE = {}
 
 def check_code_safety(code):
     """AST-based safety filter for the terminal sandbox."""
@@ -1284,12 +1292,73 @@ def _make_safe_import(allowed_modules):
         return __import__(name, globals, locals, fromlist, level)
     return safe_import
 
-def execute_sandbox_sync(code):
-    """Runs user code in an isolated namespace with a restricted builtin set."""
-    safe, msg = check_code_safety(code)
-    if not safe:
-        return msg
+TERMINAL_TIMEOUT = 15.0
+TERMINAL_INPUT_TIMEOUT = 60.0
 
+
+def _async_raise(thread, exc_type):
+    """Inject an exception into a running thread (used by the watchdog)."""
+    if not thread.is_alive():
+        return
+    tid = ctypes.c_long(thread.ident)
+    result = ctypes.pythonapi.PyThreadState_SetAsyncExc(tid, ctypes.py_object(exc_type))
+    if result == 0:
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(tid, ctypes.py_object(exc_type))
+    elif result > 1:
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(tid, ctypes.c_long(0))
+
+
+class _RunWatchdog:
+    """Raises TimeoutError inside the worker thread after `limit` seconds."""
+
+    def __init__(self, target, limit):
+        self._target = target
+        self._limit = limit
+        self._timer = None
+
+    def arm(self):
+        self.cancel()
+        self._timer = threading.Timer(self._limit, self._fire)
+        self._timer.daemon = True
+        self._timer.start()
+
+    def _fire(self):
+        _async_raise(self._target, TimeoutError)
+
+    def cancel(self):
+        if self._timer is not None:
+            self._timer.cancel()
+            self._timer = None
+
+
+async def _send_terminal_prompt(channel_id, prompt):
+    channel = bot.get_channel(channel_id)
+    if channel is None:
+        return
+    try:
+        extra = f" Prompt: `{prompt}`" if prompt else ""
+        await channel.send(f"⌨️ **input() is waiting** for your message (up to 60 seconds)...{extra}")
+    except Exception:
+        pass
+
+
+async def _send_terminal_note(channel_id, text):
+    channel = bot.get_channel(channel_id)
+    if channel is None:
+        return
+    try:
+        await channel.send(text)
+    except Exception:
+        pass
+
+
+def execute_sandbox_sync(code, channel_id=None, loop=None):
+    """Runs user code in an isolated namespace with a restricted builtin set.
+
+    Compute is hard-capped at TERMINAL_TIMEOUT seconds via an in-thread
+    watchdog. input() without a static ---INPUT--- feed waits up to
+    TERMINAL_INPUT_TIMEOUT seconds for the user to reply in Discord.
+    """
     # Support a static input() feed: anything after a line containing only
     # "---INPUT---" is treated as pre-supplied input, one value per line.
     input_lines = []
@@ -1297,6 +1366,13 @@ def execute_sandbox_sync(code):
         code, _, input_block = code.partition("---INPUT---")
         input_lines = [ln for ln in input_block.strip().splitlines()]
     input_iter = iter(input_lines)
+
+    safe, msg = check_code_safety(code)
+    if not safe:
+        return msg
+
+    state = TERMINAL_STATE.get(channel_id) if channel_id else None
+    watchdog = _RunWatchdog(threading.current_thread(), TERMINAL_TIMEOUT)
 
     output_buffer = io.StringIO()
 
@@ -1312,7 +1388,34 @@ def execute_sandbox_sync(code):
         try:
             return next(input_iter)
         except StopIteration:
+            pass
+
+        if state is None:
             return ""
+
+        # Live mode: pause the compute watchdog, then wait up to 60s for the
+        # next Discord message in this channel.
+        watchdog.cancel()
+        state["waiting"].clear()
+        state["need_input"] = True
+        if loop is not None:
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    _send_terminal_prompt(channel_id, prompt), loop).result(timeout=5)
+            except Exception:
+                pass
+        got = state["waiting"].wait(TERMINAL_INPUT_TIMEOUT)
+        state["need_input"] = False
+        watchdog.arm()
+        if not got:
+            if loop is not None:
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        _send_terminal_note(channel_id, "⏰ No input received within 60 seconds."), loop).result(timeout=5)
+                except Exception:
+                    pass
+            return ""
+        return state["values"].pop(0) if state["values"] else ""
 
     safe_builtins = {
         'print': custom_print, 'input': custom_input, 'range': range, 'len': len,
@@ -1330,19 +1433,25 @@ def execute_sandbox_sync(code):
     }
     safe_env = {'__builtins__': safe_builtins}
 
+    watchdog.arm()
     try:
         exec(code, safe_env, safe_env)
     except Exception as e:
-        output_buffer.write("".join(traceback.format_exception_only(type(e), e)).strip() + "\n")
+        if isinstance(e, TimeoutError):
+            output_buffer.write("Timeout Error: Code execution took too long (15 second limit, infinite loop?).\n")
+        else:
+            output_buffer.write("".join(traceback.format_exception_only(type(e), e)).strip() + "\n")
+    finally:
+        watchdog.cancel()
 
     return output_buffer.getvalue()
 
-async def execute_sandbox(code):
-    """Runs the sandbox on a worker thread with a 3 second timeout."""
+async def execute_sandbox(code, channel_id=None):
+    """Runs the sandbox on a worker thread. 15s compute cap, 60s input wait."""
     loop = asyncio.get_running_loop()
     try:
-        future = loop.run_in_executor(None, execute_sandbox_sync, code)
-        output = await asyncio.wait_for(future, timeout=3.0)
+        future = loop.run_in_executor(None, execute_sandbox_sync, code, channel_id, loop)
+        output = await asyncio.wait_for(future, timeout=TERMINAL_INPUT_TIMEOUT + TERMINAL_TIMEOUT + 5.0)
         return output
     except asyncio.TimeoutError:
         return "Timeout Error: Code execution took too long (infinite loop?)."
@@ -1361,14 +1470,18 @@ TERMINAL_HELP_TEXT = (
     "hex, oct, bin, pow, divmod, frozenset, iter, next, plus common exceptions.\n\n"
     "Blocked: open, eval, exec, compile, __import__ (raw), globals, locals,\n"
     "os.system/popen/spawn/run, and any module not in the list above.\n\n"
-    "Using input():\n"
-    "  Since this sandbox can't pause and wait on Discord, feed input() its\n"
-    "  values ahead of time. Add a line with only ---INPUT--- after your code,\n"
-    "  then one value per line below it. Example:\n\n"
+    "Live input() (60 seconds):\n"
+    "  The bot now waits live for your reply. When your code calls input(),\n"
+    "  it posts a prompt and waits up to 60 seconds for your next message.\n"
+    "  You can also pre-feed values: add a line with only ---INPUT--- after\n"
+    "  your code, then one value per line below it. Example:\n\n"
     "  name = input('Name: ')\n"
     "  print('Hello,', name)\n"
     "  ---INPUT---\n"
     "  Sunia\n\n"
+    "Time limits:\n"
+    "  Compute (incl. infinite loops / animations) is capped at 15 seconds.\n"
+    "  input() waits up to 60 seconds per call.\n\n"
     "Type close() or exit() to delete this terminal.\n"
     "```"
 )
@@ -1623,21 +1736,35 @@ async def on_message(message):
         return
 
     # Terminal handler runs first so terminal messages skip spam/XP logic.
-    if message.channel.category_id == 1510339895032418506 and message.channel.name.startswith("terminal-"):
+    if message.channel.category_id == 1534663424322179252 and message.channel.name.startswith("terminal-"):
         is_mod = message.author.guild_permissions.manage_messages
         is_owner = str(message.author.id) in (message.channel.topic or "")
 
         if is_owner or is_mod:
-            code = message.content.strip()
+            raw = message.content.strip()
 
-            if code.lower() in ['exit()', 'close()', 'exit', 'close', '?close']:
+            if raw.lower() in ['exit()', 'close()', 'exit', 'close', '?close']:
+                TERMINAL_STATE.pop(message.channel.id, None)
                 await message.channel.delete(reason="User closed terminal.")
                 return
 
-            if code.lower() in ['help-terminal()', 'help-terminal', '?help-terminal']:
+            if raw.lower() in ['help-terminal()', 'help-terminal', '?help-terminal']:
                 await message.channel.send(TERMINAL_HELP_TEXT)
                 return
 
+            # If user code is currently blocked inside input(), feed the next
+            # message straight to it instead of treating it as new code.
+            state = TERMINAL_STATE.get(message.channel.id)
+            if state and state["need_input"] and not state["waiting"].is_set():
+                state["values"].append(raw)
+                state["waiting"].set()
+                try:
+                    await message.add_reaction("✔️")
+                except Exception:
+                    pass
+                return
+
+            code = raw
             if code.startswith("```python"): code = code[9:]
             elif code.startswith("```py"): code = code[5:]
             elif code.startswith("```"): code = code[3:]
@@ -1647,8 +1774,15 @@ async def on_message(message):
             if not code:
                 return
 
+            if message.channel.id not in TERMINAL_STATE:
+                TERMINAL_STATE[message.channel.id] = {
+                    "waiting": threading.Event(),
+                    "values": [],
+                    "need_input": False,
+                }
+
             await message.add_reaction("⏳")
-            output = await execute_sandbox(code)
+            output = await execute_sandbox(code, message.channel.id)
 
             if len(output) > 1900:
                 output = output[:1900] + "\n... [Output Truncated]"
@@ -1790,9 +1924,11 @@ async def try_smart_command_match(message):
 # ==========================================
 @bot.hybrid_command(name="terminal", aliases=["term"], description="Opens a private Python sandbox terminal.")
 async def terminal(ctx):
-    category = bot.get_channel(1510339895032418506)
+    category = bot.get_channel(1534663424322179252)
+    if not category or getattr(category, "type", None) is not discord.ChannelType.category:
+        category = discord.utils.get(ctx.guild.categories, name__icontains="terminal")
     if not category:
-        return await ctx.send("❌ Error: The required category for terminals was not found.", ephemeral=True)
+        return await ctx.send("❌ Error: The terminal category (ID `1534663424322179252`) was not found in this server. Make sure the bot can see it.", ephemeral=True)
 
     existing_channel = discord.utils.get(category.text_channels, name=f"terminal-{ctx.author.name.lower()}")
     if existing_channel:
@@ -1819,12 +1955,14 @@ async def terminal(ctx):
         title="🐍 Python Sandbox Terminal",
         description=f"Welcome {ctx.author.mention}! This channel is your isolated Python environment.\n\n"
                     f"🔒 **Security Rules:**\n"
+                    f"• Only you and the moderators can see this channel.\n"
                     f"• Only {len(ALLOWED_TERMINAL_MODULES)} whitelisted standard-library modules can be imported.\n"
                     f"• `eval`, `exec`, `compile`, `open`, and raw file/OS access are strictly **BLOCKED**.\n"
-                    f"• Infinite loops will automatically time out after 3 seconds.\n"
+                    f"• Infinite loops and animations time out after **15 seconds**.\n"
                     f"• You cannot interact with or harm the Discord bot or the server.\n\n"
                     f"💡 **How to use:**\n"
                     f"Type your Python code directly into the chat and send it! (Code blocks work too).\n"
+                    f"`input()` waits live: the bot posts a prompt and waits up to **60 seconds** for your next message.\n"
                     f"Type `help-terminal()` to see the full list of allowed imports and how `input()` works.\n\n"
                     f"🛑 **To Exit:**\n"
                     f"Type `close()` or `exit()` to delete this channel.",
@@ -2284,13 +2422,29 @@ async def neofetch(ctx):
     user_role_ids = [r.id for r in ctx.author.roles]
 
     TUX_ASCII = [
-        r"       .--.           ",
-        r"      |o_o |          ",
-        r"      |:_/ |          ",
-        r"     //   \ \         ",
-        r"    (|     | )        ",
-        r"   /'\_   _/`\        ",
-        r"   \___)=(___/        "
+        "                ░█      ░░░█████"
+        "                ░█░░░░░░░░░█████"
+        "                ░█░░░░░░░░ █████░"
+        "                ░█ ░░░░░    █████"
+        "                ██  ░░░     ░████░"
+        "               ██            █████"
+        "              ░█░            ██████"
+        "             ░██             ░██████"
+        "             ███           ░░ ██████░"
+        "            ░██░           ░░░░██████"
+        "            ███              ░░██████░"
+        "           ░██░                ███████"
+        "           ███                  ██████░"
+        "          ░██░                  ███████"
+        "          ███                   ███████░"
+        "          ███                   ███████░"
+        "         ███░                   ░███████"
+        "         ███░                   ░███████"
+        "        ░███░                   ░███████"
+        "         █░█░                   ███████░"
+        "           ░█░                  ░██████"
+        "        ░   ░█░               ░ ░█████░"
+        "       ░     ░█░              ░ ░████░"
     ]
 
     ALMA_ASCII = [
@@ -2983,24 +3137,24 @@ async def neofetch(ctx):
         "/nvvnj/1-!      ]nQOO0f"
     ]
     VOID_ASCII = [
-        "              \"I>+-][[[[]-+>I\"",
-        "            <][}}}}}}}}}}}}}}[?<:",
-        "            ,+}}}}[?-__-?]}}}[[}}?!",
-        "       :      \"<l,`      `,l+[}[[}{];",
-        "      |CtI`                  `!]}[[}{<",
-        "     \\0ULCf\"                    +{[[[{<",
-        "   `+LUJUQr \"  \"^ :<--_+l\" `    `>[][}1I  `^",
-        "v*bbWdYJJv I(ffxOapmZd#*dticodM11*oMdOOpkkq\\",
-        " Q$$$$bUOCrf-C@$$Q[]-k$$$vY$$$C[$$$M1??a$$$@",
-        " ^z$$$$hkz`;}$$$b]{)p$$@LJ$$$m?$$$8|[|b$$$b<",
-        "  ^f#hOCUc` ,vmwQCZdowU|(hqwQ;LdZqq0Zpowu? `",
-        "   ,<LYJJLf `^``  \"li<><>```^  ^ >[[[?]\",^",
-        "     (0UJULr,                   `~[}[{>",
-        "      )QCUULU); ``        ``      `>[i",
-        "       <cQCUULJx{<:^    ^;<1t> `",
-        "       ` ]vLQCJCLLJXcvvcXJLLLLn+",
-        "         ` i(uUCCCCCCCCCCCCCCUc|\"",
-        "           `` ;+1tncXYYXcnt1+: ^",
+        "                  ░░░░░░░░"
+        "             ░░░░░░░░░░░░░░░░░░"
+        "              ░░░░░░    ░░░░░░░░░░"
+        "                             ░░░░░░░"
+        "      ░█░                      ░░░░░░"
+        "     ░█░██░                      ░░░░░"
+        "     █░░░█░         ░░            ░░░░░"
+        "░█████░░░░  ░░░░█████████░ ░███░░██████████░"
+        " ██████░██░░░█████░░░████░░████░████░░░█████"
+        "  ░██████░  ░████░░░██████████░████░░░█████"
+        "   ░████░░   ░████████░░░████ ██████████░░"
+        "     █░░░█░                       ░░░░░"
+        "     ░█░░░█░                      ░░░░"
+        "      ░██░░█░░                      ░"
+        "        ░██░░█░░░          ░░"
+        "         ░░███░███░░░░░░░░████░"
+        "            ░░░██████████████░░░"
+        "                ░░░░░░░░░░░░"
     ]
     SLACKWARE_ASCII = [
         "             ~?)\\tfjjjjfft/|{?i",
