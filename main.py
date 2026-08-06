@@ -2195,7 +2195,6 @@ async def undo(ctx, amount: int = 50):
     await ctx.send(embed=embed)
 
 @bot.hybrid_command(name="roles", aliases=["osroles", "distro"], description="Opens the OS/GPU role selection menu (mod).")
-@commands.has_permissions(manage_messages=True)
 async def roles(ctx):
     role_embed = discord.Embed(
         title="Choose Your OS & Hardware",
