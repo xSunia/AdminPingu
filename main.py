@@ -691,42 +691,33 @@ class RolesView(View):
             discord.SelectOption(label="Parrot OS", value="1522137253856415784")
         ]
         self.add_item(DistroSelect(placeholder="Debian & Ubuntu-based", options=deb_ubu_opts, custom_id="deb_ubu_menu"))
-        fedora_opts = [
-            discord.SelectOption(label="Fedora", value="1521872360393670819"),
-            discord.SelectOption(label="Nobara", value="1521872173688422420"),
-            discord.SelectOption(label="Red Star OS", value="1521872534117679206")
-        ]
-        self.add_item(DistroSelect(placeholder="Fedora-based", options=fedora_opts, custom_id="fedora_menu"))
-        indep_opts = [
-            discord.SelectOption(label="Gentoo", value="1521870225228955798"),
-            discord.SelectOption(label="Void Linux", value="1521872635968098344"),
-            discord.SelectOption(label="NixOS", value="1534520300807520379"),
-            discord.SelectOption(label="Alpine Linux", value="1521872759691542588"),
-            discord.SelectOption(label="Slackware", value="1521873129868365964"),
-            discord.SelectOption(label="Chimera Linux", value="1534519999681658941")
-        ]
-        self.add_item(DistroSelect(placeholder="Independent", options=indep_opts, custom_id="indep_menu"))
-        suse_opts = [
-            discord.SelectOption(label="openSUSE", value="1521873026776301608")
-        ]
-        self.add_item(DistroSelect(placeholder="SUSE Family", options=suse_opts, custom_id="suse_menu"))
-        win_opts = [
+        win_bsd_opts = [
             discord.SelectOption(label="Windows 11", value="1521909235594825941"),
             discord.SelectOption(label="Windows 10", value="1521909403496742973"),
             discord.SelectOption(label="Windows 8", value="1521909451739893982"),
             discord.SelectOption(label="Windows 7", value="1521909341802725427"),
             discord.SelectOption(label="Windows Vista", value="1522212167393214514"),
-            discord.SelectOption(label="Windows XP", value="1522212092663300248")
-        ]
-        self.add_item(DistroSelect(placeholder="Windows Family", options=win_opts, custom_id="win_menu"))
-        bsd_opts = [
+            discord.SelectOption(label="Windows XP", value="1522212092663300248"),
             discord.SelectOption(label="FreeBSD", value="1521909235594825999"),
             discord.SelectOption(label="GhostBSD", value="1522211951709519872"),
             discord.SelectOption(label="OpenBSD", value="1522211033073324234"),
             discord.SelectOption(label="DragonFly BSD", value="1522211796532854826"),
             discord.SelectOption(label="NetBSD", value="1522211599744499834")
         ]
-        self.add_item(DistroSelect(placeholder="BSD Family", options=bsd_opts, custom_id="bsd_menu"))
+        self.add_item(DistroSelect(placeholder="Windows & BSD Family", options=win_bsd_opts, custom_id="win_bsd_menu"))
+        indep_opts = [
+            discord.SelectOption(label="Gentoo", value="1521870225228955798"),
+            discord.SelectOption(label="Nobara", value="1521872173688422420"),
+            discord.SelectOption(label="Fedora", value="1521872360393670819"),
+            discord.SelectOption(label="Red Star OS", value="1521872534117679206"),
+            discord.SelectOption(label="Void Linux", value="1521872635968098344"),
+            discord.SelectOption(label="NixOS", value="1534520300807520379"),
+            discord.SelectOption(label="Alpine Linux", value="1521872759691542588"),
+            discord.SelectOption(label="openSUSE", value="1521873026776301608"),
+            discord.SelectOption(label="Slackware", value="1521873129868365964"),
+            discord.SelectOption(label="Chimera Linux", value="1534519999681658941")
+        ]
+        self.add_item(DistroSelect(placeholder="Independent", options=indep_opts, custom_id="indep_menu"))
         self.add_item(GPUSelect())
 
 # ==========================================
@@ -1097,8 +1088,11 @@ async def on_ready():
     for loop_job in (half_hourly_reminder, reset_daily_xp, daily_tech_news, sunday_xp_event, daily_distro_vs):
         if not loop_job.is_running():
             loop_job.start()
-    bot.add_view(RolesView())
-    bot.add_view(TicketView())
+    try:
+        bot.add_view(RolesView())
+        bot.add_view(TicketView())
+    except Exception as e:
+        print(f"View registration error: {e}")
     try:
         state = await load_event_state()
         if state and state.get("active_channel_id"):
