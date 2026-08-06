@@ -193,12 +193,22 @@ ACTIVE_EVENT_CHANNEL_ID = None
 # Channels where users are free to post media/GIF links with no restrictions
 # (exempt from the identical-message spam filter below).
 UNRESTRICTED_MEDIA_CHANNEL_IDS = [
-    1528490372240510996,
-    1510346595298709646,
     1510347156358168697,
-    1510347277938589749,
     1521943152490189012,
+]
+
+# Channels where EVERYONE may post media (not just Level 10+ / media role),
+# with a 3-second cooldown. The usual spam/profanity filters still apply.
+MEDIA_CHANNEL_IDS = [
+    1510346595298709646,
+    1528490372240510996,
+    1534663553334902955,
     1510347496139002078,
+    1510350382147174532,
+    1510347716037967962,
+    1510347277938589749,
+    1534664073592049874,
+    1534664109419659314,
 ]
 
 REMINDER_INACTIVITY_THRESHOLD_SECONDS = 3600
@@ -437,9 +447,9 @@ def _geometric_interp(level, low_level, low_value, high_level, high_value):
     return low_value * ((high_value / low_value) ** t)
 
 def _xp_delta_for_level(level):
-    """Returns how much XP is needed to go from (level - 1) to (level)."""
+    """Returns how much XP is needed to go from (level) to (level + 1)."""
     if level <= 10:
-        # Levels 1-10: exactly level * 100 (100, 200, 300 ... 1000).
+        # Levels 1-10: exactly level * 100 (1->2 is 100, 2->3 is 200 ... 10->11 is 1000).
         value = level * 100
     elif level <= 20:
         # Light-medium: 10 -> 20.
@@ -465,34 +475,34 @@ def _xp_delta_for_level(level):
         value = 150000 * (1.35 ** (level - 100))
     return max(50, round(value))
 
-# Every 3 messages a user gets awarded XP in the 5-30 range, but weighted
-# so that rolls of 15+ are the most common outcome instead of a flat
-# uniform 5-30 roll.
+# Every 3 messages a user gets awarded XP in the 5-30 range, weighted around
+# 15. Values of 10 or below and 25 or above are rarer than the mid band.
 def get_weighted_xp_gain():
-    """Returns a weighted random XP amount between 5 and 30, favoring 15+."""
+    """Returns a weighted random XP amount between 5 and 30, centered on 15."""
     tier = random.choices(
         population=["low", "mid", "high"],
-        weights=[15, 25, 60],  # low: 5-9, mid: 10-14, high: 15-30 (favored)
+        weights=[20, 60, 20],  # low: 5-10, mid: 11-24 (favored), high: 25-30
         k=1
     )[0]
     if tier == "low":
-        return random.randint(5, 9)
+        return random.randint(5, 10)
     elif tier == "mid":
-        return random.randint(10, 14)
-    return random.randint(15, 30)
+        return random.randint(11, 24)
+    return random.randint(25, 30)
 
 _MAX_PRECOMPUTED_LEVEL = 200
-_XP_REQUIREMENT_TABLE = [0]
+_XP_REQUIREMENT_TABLE = [0, 0]
 for _lvl in range(1, _MAX_PRECOMPUTED_LEVEL + 1):
     _XP_REQUIREMENT_TABLE.append(_XP_REQUIREMENT_TABLE[-1] + _xp_delta_for_level(_lvl))
 
 def get_xp_requirement(level):
-    if level <= 0:
+    """Total XP needed to REACH `level` (level 1 starts at 0 XP)."""
+    if level <= 1:
         return 0
     if level < len(_XP_REQUIREMENT_TABLE):
         return _XP_REQUIREMENT_TABLE[level]
     total = _XP_REQUIREMENT_TABLE[-1]
-    for lvl in range(_MAX_PRECOMPUTED_LEVEL + 1, level + 1):
+    for lvl in range(len(_XP_REQUIREMENT_TABLE) - 1, level):
         total += _xp_delta_for_level(lvl)
     return total
 
@@ -679,33 +689,42 @@ class RolesView(View):
             discord.SelectOption(label="Parrot OS", value="1522137253856415784")
         ]
         self.add_item(DistroSelect(placeholder="Debian & Ubuntu-based", options=deb_ubu_opts, custom_id="deb_ubu_menu"))
-        win_bsd_opts = [
+        fedora_opts = [
+            discord.SelectOption(label="Fedora", value="1521872360393670819"),
+            discord.SelectOption(label="Nobara", value="1521872173688422420"),
+            discord.SelectOption(label="Red Star OS", value="1521872534117679206")
+        ]
+        self.add_item(DistroSelect(placeholder="Fedora-based", options=fedora_opts, custom_id="fedora_menu"))
+        indep_opts = [
+            discord.SelectOption(label="Gentoo", value="1521870225228955798"),
+            discord.SelectOption(label="Void Linux", value="1521872635968098344"),
+            discord.SelectOption(label="NixOS", value="1534520300807520379"),
+            discord.SelectOption(label="Alpine Linux", value="1521872759691542588"),
+            discord.SelectOption(label="Slackware", value="1521873129868365964"),
+            discord.SelectOption(label="Chimera Linux", value="1534519999681658941")
+        ]
+        self.add_item(DistroSelect(placeholder="Independent", options=indep_opts, custom_id="indep_menu"))
+        suse_opts = [
+            discord.SelectOption(label="openSUSE", value="1521873026776301608")
+        ]
+        self.add_item(DistroSelect(placeholder="SUSE Family", options=suse_opts, custom_id="suse_menu"))
+        win_opts = [
             discord.SelectOption(label="Windows 11", value="1521909235594825941"),
             discord.SelectOption(label="Windows 10", value="1521909403496742973"),
             discord.SelectOption(label="Windows 8", value="1521909451739893982"),
             discord.SelectOption(label="Windows 7", value="1521909341802725427"),
             discord.SelectOption(label="Windows Vista", value="1522212167393214514"),
-            discord.SelectOption(label="Windows XP", value="1522212092663300248"),
+            discord.SelectOption(label="Windows XP", value="1522212092663300248")
+        ]
+        self.add_item(DistroSelect(placeholder="Windows Family", options=win_opts, custom_id="win_menu"))
+        bsd_opts = [
             discord.SelectOption(label="FreeBSD", value="1521909235594825999"),
             discord.SelectOption(label="GhostBSD", value="1522211951709519872"),
             discord.SelectOption(label="OpenBSD", value="1522211033073324234"),
             discord.SelectOption(label="DragonFly BSD", value="1522211796532854826"),
             discord.SelectOption(label="NetBSD", value="1522211599744499834")
         ]
-        self.add_item(DistroSelect(placeholder="Windows & BSD Family", options=win_bsd_opts, custom_id="win_bsd_menu"))
-        indep_opts = [
-            discord.SelectOption(label="Gentoo", value="1521870225228955798"),
-            discord.SelectOption(label="Nobara", value="1521872173688422420"),
-            discord.SelectOption(label="Fedora", value="1521872360393670819"),
-            discord.SelectOption(label="Red Star OS", value="1521872534117679206"),
-            discord.SelectOption(label="Void Linux", value="1521872635968098344"),
-            discord.SelectOption(label="NixOS", value="1534520300807520379"),
-            discord.SelectOption(label="Alpine Linux", value="1521872759691542588"),
-            discord.SelectOption(label="openSUSE", value="1521873026776301608"),
-            discord.SelectOption(label="Slackware", value="1521873129868365964"),
-            discord.SelectOption(label="Chimera Linux", value="1534519999681658941")
-        ]
-        self.add_item(DistroSelect(placeholder="Independent", options=indep_opts, custom_id="indep_menu"))
+        self.add_item(DistroSelect(placeholder="BSD Family", options=bsd_opts, custom_id="bsd_menu"))
         self.add_item(GPUSelect())
 
 # ==========================================
@@ -1118,6 +1137,30 @@ async def on_ready():
             print("⚔️ Distro VS channel not configured yet — use ?setdistrochannel to set one.")
     except Exception as e:
         print(f"Distro VS state restore error: {e}")
+
+    # Apply channel settings: 3s slowmode everywhere, open media to everyone
+    # in the media channels, and let everyone type in the epic milestone
+    # channel (the bot's media gate enforces Level 10+ GIF-only there).
+    try:
+        for channel_id in MEDIA_CHANNEL_IDS + [EPIC_LEVEL_100_CHANNEL]:
+            channel = bot.get_channel(channel_id)
+            if channel is None:
+                continue
+            try:
+                await channel.edit(slowmode_delay=3)
+            except Exception as e:
+                print(f"  ⚠️ Could not set slowmode on {channel_id}: {e}")
+            try:
+                await channel.set_permissions(
+                    channel.guild.default_role,
+                    send_messages=True,
+                    attach_files=True,
+                    embed_links=True,
+                )
+            except Exception as e:
+                print(f"  ⚠️ Could not open send/media perms on {channel_id}: {e}")
+    except Exception as e:
+        print(f"Channel settings error: {e}")
 
     # Post the ticket menu in the ticket channel once (persisted in DB so a
     # restart never duplicates the menu message).
@@ -1728,8 +1771,27 @@ async def customize(ctx):
     view.message = message
 
 # ==========================================
-# Message handling: terminal, spam filter, profanity filter, XP
+# Message handling: terminal, media gate, spam filter, profanity filter, XP
 # ==========================================
+_MEDIA_URL_RE = re.compile(r'https?://\S+\.(?:gif|png|jpe?g|webp|mp4|webm|mov)(?:\?\S*)?', re.IGNORECASE)
+_MEDIA_HOST_RE = re.compile(r'(?:tenor\.com|giphy\.com|gph\.is|imgur\.com|coub\.com)', re.IGNORECASE)
+
+
+def _message_has_media(message):
+    if message.attachments:
+        return True
+    return bool(_MEDIA_URL_RE.search(message.content or "") or _MEDIA_HOST_RE.search(message.content or ""))
+
+
+def _is_gif_media(message):
+    for attachment in message.attachments:
+        if attachment.filename.lower().endswith((".gif", ".webm", ".mp4")):
+            return True
+    if re.search(r'\.gif(?:\?|$)', message.content or "", re.IGNORECASE):
+        return True
+    return bool(re.search(r'(?:tenor\.com|giphy\.com)', message.content or "", re.IGNORECASE))
+
+
 @bot.event
 async def on_message(message):
     if message.author == bot.user or message.author.bot:
@@ -1795,6 +1857,28 @@ async def on_message(message):
             except Exception:
                 pass
             return
+
+    # Media gate: everyone may post media in MEDIA_CHANNEL_IDS. In the epic
+    # (level milestone) channel only Level 10+ members may post media, and
+    # only GIF media at that. Everywhere else media is left to Discord perms.
+    if message.channel.id not in MEDIA_CHANNEL_IDS and message.channel.id == EPIC_LEVEL_100_CHANNEL:
+        if _message_has_media(message):
+            is_mod = message.author.guild_permissions.manage_messages
+            has_media_role = any(r.id == MEDIA_ROLE_ID for r in message.author.roles)
+            if not (is_mod or has_media_role):
+                try:
+                    await message.delete()
+                    await message.channel.send(f"⚠️ {message.author.mention} Only **Level 10+** members can post media in this channel!", delete_after=5)
+                except Exception:
+                    pass
+                return
+            if not _is_gif_media(message):
+                try:
+                    await message.delete()
+                    await message.channel.send(f"⚠️ {message.author.mention} Only **GIF** media is allowed in this channel!", delete_after=5)
+                except Exception:
+                    pass
+                return
 
     global last_activity_time
     last_activity_time = time.time()
@@ -2110,7 +2194,8 @@ async def undo(ctx, amount: int = 50):
     )
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="roles", aliases=["osroles", "distro"], description="Opens the OS/GPU role selection menu.")
+@bot.hybrid_command(name="roles", aliases=["osroles", "distro"], description="Opens the OS/GPU role selection menu (mod).")
+@commands.has_permissions(manage_messages=True)
 async def roles(ctx):
     role_embed = discord.Embed(
         title="Choose Your OS & Hardware",
@@ -2417,34 +2502,34 @@ async def gif(ctx):
     embed.set_image(url=random.choice(LINUX_GIFS))
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="neofetch", aliases=["nf", "sysinfo"], description="Shows user and OS information in a neofetch style.")
+@bot.hybrid_command(name="neofetch", aliases=["nf", "sysinfo", "neo"], description="Shows user and OS information in a neofetch style.")
 async def neofetch(ctx):
     user_role_ids = [r.id for r in ctx.author.roles]
 
     TUX_ASCII = [
-        "                ░█      ░░░█████"
-        "                ░█░░░░░░░░░█████"
-        "                ░█░░░░░░░░ █████░"
-        "                ░█ ░░░░░    █████"
-        "                ██  ░░░     ░████░"
-        "               ██            █████"
-        "              ░█░            ██████"
-        "             ░██             ░██████"
-        "             ███           ░░ ██████░"
-        "            ░██░           ░░░░██████"
-        "            ███              ░░██████░"
-        "           ░██░                ███████"
-        "           ███                  ██████░"
-        "          ░██░                  ███████"
-        "          ███                   ███████░"
-        "          ███                   ███████░"
-        "         ███░                   ░███████"
-        "         ███░                   ░███████"
-        "        ░███░                   ░███████"
-        "         █░█░                   ███████░"
-        "           ░█░                  ░██████"
-        "        ░   ░█░               ░ ░█████░"
-        "       ░     ░█░              ░ ░████░"
+        "                ░█      ░░░█████",
+        "                ░█░░░░░░░░░█████",
+        "                ░█░░░░░░░░ █████░",
+        "                ░█ ░░░░░    █████",
+        "                ██  ░░░     ░████░",
+        "               ██            █████",
+        "              ░█░            ██████",
+        "             ░██             ░██████",
+        "             ███           ░░ ██████░",
+        "            ░██░           ░░░░██████",
+        "            ███              ░░██████░",
+        "           ░██░                ███████",
+        "           ███                  ██████░",
+        "          ░██░                  ███████",
+        "          ███                   ███████░",
+        "          ███                   ███████░",
+        "         ███░                   ░███████",
+        "         ███░                   ░███████",
+        "        ░███░                   ░███████",
+        "         █░█░                   ███████░",
+        "           ░█░                  ░██████",
+        "        ░   ░█░               ░ ░█████░",
+        "       ░     ░█░              ░ ░████░",
     ]
 
     ALMA_ASCII = [
@@ -3137,24 +3222,24 @@ async def neofetch(ctx):
         "/nvvnj/1-!      ]nQOO0f"
     ]
     VOID_ASCII = [
-        "                  ░░░░░░░░"
-        "             ░░░░░░░░░░░░░░░░░░"
-        "              ░░░░░░    ░░░░░░░░░░"
-        "                             ░░░░░░░"
-        "      ░█░                      ░░░░░░"
-        "     ░█░██░                      ░░░░░"
-        "     █░░░█░         ░░            ░░░░░"
-        "░█████░░░░  ░░░░█████████░ ░███░░██████████░"
-        " ██████░██░░░█████░░░████░░████░████░░░█████"
-        "  ░██████░  ░████░░░██████████░████░░░█████"
-        "   ░████░░   ░████████░░░████ ██████████░░"
-        "     █░░░█░                       ░░░░░"
-        "     ░█░░░█░                      ░░░░"
-        "      ░██░░█░░                      ░"
-        "        ░██░░█░░░          ░░"
-        "         ░░███░███░░░░░░░░████░"
-        "            ░░░██████████████░░░"
-        "                ░░░░░░░░░░░░"
+        "                  ░░░░░░░░",
+        "             ░░░░░░░░░░░░░░░░░░",
+        "              ░░░░░░    ░░░░░░░░░░",
+        "                             ░░░░░░░",
+        "      ░█░                      ░░░░░░",
+        "     ░█░██░                      ░░░░░",
+        "     █░░░█░         ░░            ░░░░░",
+        "░█████░░░░  ░░░░█████████░ ░███░░██████████░",
+        " ██████░██░░░█████░░░████░░████░████░░░█████",
+        "  ░██████░  ░████░░░██████████░████░░░█████",
+        "   ░████░░   ░████████░░░████ ██████████░░",
+        "     █░░░█░                       ░░░░░",
+        "     ░█░░░█░                      ░░░░",
+        "      ░██░░█░░                      ░",
+        "        ░██░░█░░░          ░░",
+        "         ░░███░███░░░░░░░░████░",
+        "            ░░░██████████████░░░",
+        "                ░░░░░░░░░░░░",
     ]
     SLACKWARE_ASCII = [
         "             ~?)\\tfjjjjfft/|{?i",
@@ -3426,27 +3511,31 @@ async def neofetch(ctx):
     ascii_width = max((len(line) for line in final_ascii), default=22)
     max_lines = max(len(final_ascii), len(stats_lines))
 
-    def _build_block(line_range):
-        block = "```ansi\n"
-        for i in line_range:
+    def _make_lines():
+        for i in range(max_lines):
             left = final_ascii[i].ljust(ascii_width) if i < len(final_ascii) else " " * ascii_width
             right = stats_lines[i] if i < len(stats_lines) else ""
-            block += f"{left}  {right}\n"
-        block += "```"
-        return block
+            yield f"{left}  {right}"
 
-    neofetch_output = _build_block(range(max_lines))
+    content_lines = list(_make_lines())
 
-    if len(neofetch_output) <= 1990:
-        await ctx.send(neofetch_output)
-    else:
-        # A few of the larger logos can push the combined output past
-        # Discord's message length limit. Instead of cutting the ASCII art
-        # short, split it into two messages so the full logo still gets
-        # sent in one piece each.
-        mid = max_lines // 2
-        await ctx.send(_build_block(range(0, mid)))
-        await ctx.send(_build_block(range(mid, max_lines)))
+    # Pack the lines into chunks so every ansi block stays under Discord's
+    # 2000-char message limit, regardless of how wide or tall the logo is.
+    chunks = []
+    current = []
+    current_len = 11  # "```ansi\n" + "\n```\n"
+    for line in content_lines:
+        if current and current_len + len(line) > 1985:
+            chunks.append(current)
+            current = []
+            current_len = 11
+        current.append(line)
+        current_len += len(line) + 1
+    if current:
+        chunks.append(current)
+
+    for chunk in chunks:
+        await ctx.send("```ansi\n" + "\n".join(chunk) + "\n```")
 
 @bot.hybrid_command(name="cowsay", aliases=["cow"], description="Simulates the classic Linux cowsay command.")
 async def cowsay(ctx, *, text: str = "Moo! AdminPingu is watching."):
