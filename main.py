@@ -3711,56 +3711,83 @@ async def shortcuts(ctx):
     )
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="help", aliases=["h", "commands", "cmds"], description="Lists all bot commands.")
-async def help(ctx):
+MODERATION_HELP = (
+    "`?sudolock` / `?sudounlock` - Locks/Unlocks a text channel\n"
+    "`?mute <user> [h]` / `?unmute <user>` - Manages timeouts\n"
+    "`?clear` - Mass deletes messages in a channel\n"
+    "`?undo [amount]` - Deletes AdminPingu's own recent messages in this channel only, with a report\n"
+    "`?warning <user> [reason]` - Gives a user a warning\n"
+    "`?warnings <user>` - Shows a user's warning history\n"
+    "`?clearwarnings <user>` - Resets a user's warnings to 0\n"
+    "`?ban <user> [reason]` / `?unban <id>` - Manages bans\n"
+    "`?setnewschannel` - Sets the channel for tech news\n"
+    "`?setdistrochannel` - Sets the channel for the AI Distro Showdown (every ~12h)\n"
+    "`?setjoinchannel` - Sets the channel for welcome banners\n"
+    "`?messagesendadminpingu` - Sets the channel for the automated rules reminder\n"
+    "`?fixlevels` - Recalculates everyone's level against the current XP curve\n"
+    "`?dbstatus` - Checks MongoDB connectivity and collection counts"
+)
+
+STATS_HELP = (
+    "`?stats [user]` - View a user's level and XP\n"
+    "`?customize` - Personalize your stats card font, color and background\n"
+    "`?leaderstats` - See the top 15 users in the server\n"
+    "`?serverinfo` - Display information about this server\n"
+    "`?shortcuts` - See every command's short alias"
+)
+
+FUN_HELP = (
+    "`?weather <city>` - Get the current weather\n"
+    "`?randomlinux` / `?whoami` / `?pythontip` - Tech stuff\n"
+    "`?neofetch` / `?cowsay <text>` / `?fortune` - Linux terminal fun\n"
+    "`?packagemap <action>` / `?distrobattle` - More Linux nerdery\n"
+    "`?uptime` - How long the bot has been running\n"
+    "`?tankfact` - Interesting facts\n"
+    "`?tea` - Brew some tea for someone\n"
+    "`?coinflip` / `?diceroll` / `?8ball` / `?joke` / `?gif` - Minigames\n"
+    "`?terminal` - Opens your own private Python sandbox terminal channel"
+)
+
+def _help_cover_embed():
     embed = discord.Embed(
         title="🐧 AdminPingu Command List",
         description="Every command works with **both** `?prefix` and `/slash`. Use `?shortcuts` to see every alias, "
-                     "and don't worry about typing the full name — a close-enough shortcut usually gets auto-detected too.",
+                     "and don't worry about typing the full name — a close-enough shortcut usually gets auto-detected too.\n\n"
+                     "📖 **Select a section with the buttons below:**\n"
+                     "**1** 🛡️ Moderation Commands\n"
+                     "**2** 📊 Stats & Utilities\n"
+                     "**3** 🎮 Fun & Random",
         color=discord.Color.dark_green()
     )
-    embed.add_field(
-        name="🛡️ Moderation Commands",
-        value="`?sudolock` / `?sudounlock` - Locks/Unlocks a text channel\n"
-              "`?mute <user> [h]` / `?unmute <user>` - Manages timeouts\n"
-              "`?clear` - Mass deletes messages in a channel\n"
-              "`?undo [amount]` - Deletes AdminPingu's own recent messages in this channel only, with a report\n"
-              "`?warning <user> [reason]` - Gives a user a warning\n"
-              "`?warnings <user>` - Shows a user's warning history\n"
-              "`?clearwarnings <user>` - Resets a user's warnings to 0\n"
-              "`?ban <user> [reason]` / `?unban <id>` - Manages bans\n"
-              "`?setnewschannel` - Sets the channel for tech news\n"
-              "`?setdistrochannel` - Sets the channel for the AI Distro Showdown (every ~12h)\n"
-              "`?setjoinchannel` - Sets the channel for welcome banners\n"
-              "`?messagesendadminpingu` - Sets the channel for the automated rules reminder\n"
-              "`?fixlevels` - Recalculates everyone's level against the current XP curve\n"
-              "`?dbstatus` - Checks MongoDB connectivity and collection counts",
-            inline=False
-    )
-    embed.add_field(
-        name="📊 Stats & Utilities",
-        value="`?stats [user]` - View a user's level and XP\n"
-              "`?customize` - Personalize your stats card font, color and background\n"
-              "`?leaderstats` - See the top 15 users in the server\n"
-              "`?serverinfo` - Display information about this server\n"
-              "`?shortcuts` - See every command's short alias",
-            inline=False
-    )
-    embed.add_field(
-        name="🎮 Fun & Random",
-        value="`?weather <city>` - Get the current weather\n"
-              "`?randomlinux` / `?whoami` / `?pythontip` - Tech stuff\n"
-              "`?neofetch` / `?cowsay <text>` / `?fortune` - Linux terminal fun\n"
-              "`?packagemap <action>` / `?distrobattle` - More Linux nerdery\n"
-              "`?uptime` - How long the bot has been running\n"
-              "`?tankfact` - Interesting facts\n"
-              "`?tea` - Brew some tea for someone\n"
-              "`?coinflip` / `?diceroll` / `?8ball` / `?joke` / `?gif` - Minigames\n"
-              "`?terminal` - Opens your own private Python sandbox terminal channel",
-            inline=False
-    )
     embed.set_footer(text="Arguments in [brackets] are optional, <angle brackets> are required. Try /help too!")
-    await ctx.send(embed=embed)
+    return embed
+
+def _help_section_embed(title, content, color):
+    embed = discord.Embed(title=title, description=content, color=color)
+    embed.set_footer(text="Select another section with buttons 1, 2 or 3 below.")
+    return embed
+
+class HelpSectionButton(discord.ui.Button):
+    def __init__(self, label, emoji, custom_id, section_embed):
+        super().__init__(label=label, emoji=emoji, style=discord.ButtonStyle.primary, custom_id=custom_id)
+        self.section_embed = section_embed
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.edit_message(embed=self.section_embed, view=self.view)
+
+class HelpView(View):
+    def __init__(self):
+        super().__init__(timeout=300)
+        self.add_item(HelpSectionButton("1", "🛡️", "help_section_mod", _help_section_embed("🛡️ Moderation Commands", MODERATION_HELP, discord.Color.red())))
+        self.add_item(HelpSectionButton("2", "📊", "help_section_stats", _help_section_embed("📊 Stats & Utilities", STATS_HELP, discord.Color.blue())))
+        self.add_item(HelpSectionButton("3", "🎮", "help_section_fun", _help_section_embed("🎮 Fun & Random", FUN_HELP, discord.Color.gold())))
+
+@bot.hybrid_command(name="help", aliases=["h", "commands", "cmds"], description="Lists all bot commands.")
+async def help(ctx):
+    if ctx.interaction:
+        await ctx.send(embed=_help_cover_embed(), view=HelpView(), ephemeral=True)
+    else:
+        await ctx.send(embed=_help_cover_embed(), view=HelpView())
 
 @bot.listen()
 async def on_command_error(ctx, error):
