@@ -2925,29 +2925,13 @@ async def neofetch(ctx):
     user_role_ids = [r.id for r in ctx.author.roles]
 
     TUX_ASCII = [
-        "                ░█      ░░░█████",
-        "                ░█░░░░░░░░░█████",
-        "                ░█░░░░░░░░ █████░",
-        "                ░█ ░░░░░    █████",
-        "                ██  ░░░     ░████░",
-        "               ██            █████",
-        "              ░█░            ██████",
-        "             ░██             ░██████",
-        "             ███           ░░ ██████░",
-        "            ░██░           ░░░░██████",
-        "            ███              ░░██████░",
-        "           ░██░                ███████",
-        "           ███                  ██████░",
-        "          ░██░                  ███████",
-        "          ███                   ███████░",
-        "          ███                   ███████░",
-        "         ███░                   ░███████",
-        "         ███░                   ░███████",
-        "        ░███░                   ░███████",
-        "         █░█░                   ███████░",
-        "           ░█░                  ░██████",
-        "        ░   ░█░               ░ ░█████░",
-        "       ░     ░█░              ░ ░████░",
+        r"        .--.         ",
+        r"       |o_o |        ",
+        r"       |:_/ |        ",
+        r"      //   \ \       ",
+        r"     (|     | )      ",
+        r"    /'\_   _/`\     ",
+        r"    \___)=(___/     ",
     ]
 
     ALMA_ASCII = [
@@ -3867,9 +3851,23 @@ async def neofetch(ctx):
         1522211599744499834: ("NetBSD", NETBSD_ASCII)
     }
 
+    dewm_role_mapping = {
+        1535969909954183239: "KDE Plasma",
+        1535970090724495470: "GNOME",
+        1535970501740990494: "XFCE",
+        1535970676337418240: "Cinnamon",
+        1535970708046356552: "MATE",
+        1535970826686431314: "Niri",
+        1535971021008543744: "Hyprland",
+        1535971133260701716: "i3",
+        1535971171260964944: "Sway",
+        1535971353801396275: "Mango WM",
+    }
+
     selected_linux = None
     selected_win = None
     selected_bsd = None
+    selected_dewm = None
 
     for r_id in user_role_ids:
         if r_id in distro_role_mapping and not selected_linux:
@@ -3878,6 +3876,8 @@ async def neofetch(ctx):
             selected_win = win_role_mapping[r_id]
         if r_id in bsd_role_mapping and not selected_bsd:
             selected_bsd = bsd_role_mapping[r_id]
+        if r_id in dewm_role_mapping and not selected_dewm:
+            selected_dewm = dewm_role_mapping[r_id]
 
     final_os = "Linux (Tux)"
     final_ascii = TUX_ASCII
@@ -3916,6 +3916,7 @@ async def neofetch(ctx):
         separator,
         f"OS: {final_os}",
         f"Host: Linux & Beyond",
+        f"DE/WM: {selected_dewm}" if selected_dewm else "DE/WM: None",
         f"Authority: {auth_level}",
         f"Uptime: {uptime_str}",
         f"Roles: {role_count}",
