@@ -856,30 +856,43 @@ class GPUSelect(Select):
         await interaction.user.add_roles(role)
         await interaction.response.send_message(f"✅ You have successfully claimed the `{role.name}` driver role!", ephemeral=True)
 
-class RolesPageButton(discord.ui.Button):
-    def __init__(self, label, custom_id):
-        super().__init__(label=label, style=discord.ButtonStyle.secondary, custom_id=custom_id)
+class RolesCategorySelect(Select):
+    """Top dropdown: pick which role category to show in the second menu."""
+
+    def __init__(self):
+        options = [
+            discord.SelectOption(label="Arch", value="roles_arch", emoji="🐧"),
+            discord.SelectOption(label="Debian", value="roles_deb", emoji="🐧"),
+            discord.SelectOption(label="Fedora", value="roles_fedora", emoji="🐧"),
+            discord.SelectOption(label="Windows", value="roles_windows", emoji="🪟"),
+            discord.SelectOption(label="BSD", value="roles_bsd", emoji="🧬"),
+            discord.SelectOption(label="Independent", value="roles_indep", emoji="🐧"),
+            discord.SelectOption(label="Graphics", value="roles_gpu", emoji="🖥️"),
+            discord.SelectOption(label="DE / WM", value="roles_dewm", emoji="🖼️"),
+        ]
+        super().__init__(
+            placeholder="🎯 1. Choose a category...",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="roles_category",
+        )
 
     async def callback(self, interaction: discord.Interaction):
         view: RolesView = self.view
-        if self.custom_id == "roles_prev":
-            view.current_page = (view.current_page - 1) % len(view.pages)
-        else:
-            view.current_page = (view.current_page + 1) % len(view.pages)
-        view._mount_page()
-        placeholder = view.pages[view.current_page][0]
-        await interaction.response.edit_message(
-            content=f"**Category:** {placeholder} — page {view.current_page + 1}/{len(view.pages)}",
-            view=view,
-        )
+        view.current_category = self.values[0]
+        view._mount_content()
+        view.embed.description = view._build_description()
+        await interaction.response.edit_message(embed=view.embed, view=view)
+
 
 class RolesView(View):
-    """Paginated OS / hardware / desktop role picker.
+    """Two-menu role picker: a category dropdown + a role dropdown.
 
-    Discord allows at most 5 select menus per message, but we have 8
-    categories (Arch / Debian / Fedora / Windows / BSD / Independent /
-    Graphics / DE-WM), so categories are split across pages and the
-    ◀ ▶ buttons flip between them.
+    Discord caps a message at 5 action rows, and we have 8 role categories —
+    too many for separate select menus. Instead the first menu picks the
+    category and the second menu swaps in that category's roles on the fly,
+    so it stays one clean message with no pagination.
     """
 
     def __init__(self):
@@ -947,40 +960,54 @@ class RolesView(View):
             discord.SelectOption(label="Sway", value="1535971171260964944"),
             discord.SelectOption(label="Mango WM", value="1535971353801396275"),
         ]
-        self.pages = [
-            ("🐧 Arch / Arch-based", arch_opts, "roles_arch", False),
-            ("🐧 Debian & Ubuntu-based", deb_opts, "roles_deb", False),
-            ("🐧 Fedora / RHEL-based", fedora_opts, "roles_fedora", False),
-            ("🪟 Windows", win_opts, "roles_windows", False),
-            ("🧬 BSD Family", bsd_opts, "roles_bsd", False),
-            ("🐧 Independent", indep_opts, "roles_indep", False),
-            ("🖥️ Graphics Driver", [], "roles_gpu", True),
-            ("🖼️ Desktop Environment / WM", dewm_opts, "roles_dewm", False),
-        ]
-        self.current_page = 0
-        self._select_item = None
-        self.prev_button = RolesPageButton("◀️", "roles_prev")
-        self.next_button = RolesPageButton("▶️", "roles_next")
-        self.add_item(self.prev_button)
-        self.add_item(self.next_button)
-        self._mount_page()
+        # custom_id -> (label, role options or None for GPU, is_gpu flag)
+        self.categories = {
+            "roles_arch": ("🐧 Arch / Arch-based", arch_opts, False),
+            "roles_deb": ("🐧 Debian & Ubuntu-based", deb_opts, False),
+            "roles_fedora": ("🐧 Fedora / RHEL-based", fedora_opts, False),
+            "roles_windows": ("🪟 Windows", win_opts, False),
+            "roles_bsd": ("🧬 BSD Family", bsd_opts, False),
+            "roles_indep": ("🐧 Independent", indep_opts, False),
+            "roles_gpu": ("🖥️ Graphics Driver", None, True),
+            "roles_dewm": ("🖼️ Desktop Environment / WM", dewm_opts, False),
+        }
+        self.current_category = "roles_arch"
+        self.embed = discord.Embed(
+            title="Choose Your OS, Hardware & Desktop",
+            description=self._build_description(),
+            color=discord.Color.dark_theme(),
+        )
+        self._content_select = None
+        self.add_item(RolesCategorySelect())
+        self._mount_content()
 
-    def _build_select(self):
-        placeholder, options, custom_id, is_gpu = self.pages[self.current_page]
+    def _build_description(self):
+        label = self.categories[self.current_category][0]
+        return (
+            "Pick a **category** from the first menu, then choose your roles "
+            "from the second menu below.\n\n"
+            f"**Current category:** {label}\n\n"
+            "OS roles: pick any and as many as you like — no dual-boot limit "
+            "anymore! For **Graphics** and **DE / WM**, only one selection is "
+            "kept at a time."
+        )
+
+    def _build_content_select(self):
+        label, options, is_gpu = self.categories[self.current_category]
         if is_gpu:
             return GPUSelect()
         return DistroSelect(
-            placeholder=placeholder,
+            placeholder=f"2. Select roles: {label}",
             options=options,
-            custom_id=custom_id,
-            max_values=1 if custom_id == "roles_dewm" else len(options),
+            custom_id=self.current_category,
+            max_values=1 if self.current_category == "roles_dewm" else len(options),
         )
 
-    def _mount_page(self):
-        if self._select_item is not None:
-            self.remove_item(self._select_item)
-        self._select_item = self._build_select()
-        self.add_item(self._select_item)
+    def _mount_content(self):
+        if self._content_select is not None:
+            self.remove_item(self._content_select)
+        self._content_select = self._build_content_select()
+        self.add_item(self._content_select)
 
 # ==========================================
 # Ticket system
@@ -1450,18 +1477,8 @@ async def on_ready():
                 )
             except Exception as e:
                 print(f"  ⚠️ Roles channel lock failed: {e}")
-            role_embed = discord.Embed(
-                title="Choose Your OS, Hardware & Desktop",
-                description=(
-                    "Use the **◀ ▶** buttons below to browse the categories:\n"
-                    "🐧 **Arch** • **Debian** • **Fedora** • **Independent**\n"
-                    "🪟 **Windows** • **🧬 BSD** • **🖥️ Graphics** • **🖼️ DE / WM**\n\n"
-                    "Pick any and as many **OS** roles as you like — no dual-boot limit anymore! "
-                    "For **Graphics** and **DE / WM**, only one selection is kept at a time."
-                ),
-                color=discord.Color.dark_theme()
-            )
-            await roles_channel.send(embed=role_embed, view=RolesView())
+            roles_view = RolesView()
+            await roles_channel.send(embed=roles_view.embed, view=roles_view)
             print("🎭 Roles menu posted in the roles channel.")
     except Exception as e:
         print(f"Roles menu post error: {e}")
