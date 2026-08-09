@@ -337,7 +337,7 @@ ALL_GPU_ROLES = [1521879270530486414, 1521879224951246928, 1521879315648614410]
 STRICT_BANNED_WORDS = {
     "nigger", "nigga", "porn", "porno", "sex", "pussy", "fuck",
     "bitch", "cunt", "dick", "asshole", "slut", "whore",
-    "faggot", "childporn", "rape", "pusy", "fck", "btch", "cp"
+    "faggot", "childporn", "rape", "pusy", "fck", "btch"
 }
 
 SQUISHED_SEVERE_WORDS = ["fuck", "nigger", "nigga", "porn", "pussy", "bitch", "faggot", "whore"]
@@ -424,6 +424,7 @@ except Exception as e:
 warning_db = {}
 user_message_cache = {}
 xp_message_counter = {}
+last_user_message_time = {}  # user_id -> last message timestamp (drives cache TTL cleanup)
 LAST_NEWS_URL = ""
 last_activity_time = time.time()
 
@@ -806,8 +807,11 @@ async def add_xp(user_id, amount):
 # OS / GPU role picker menus
 # ==========================================
 class DistroSelect(Select):
-    def __init__(self, placeholder, options, custom_id):
-        super().__init__(placeholder=placeholder, min_values=0, max_values=len(options), options=options, custom_id=custom_id)
+    def __init__(self, placeholder, options, custom_id, max_values=None):
+        # max_values=None -> allow picking any number (OS menus).
+        # max_values=1    -> single, mutually-exclusive pick (DE/WM menu).
+        max_v = max_values if max_values is not None else len(options)
+        super().__init__(placeholder=placeholder, min_values=0, max_values=max_v, options=options, custom_id=custom_id)
         self.menu_role_ids = [int(opt.value) for opt in options]
 
     async def callback(self, interaction: discord.Interaction):
@@ -852,7 +856,32 @@ class GPUSelect(Select):
         await interaction.user.add_roles(role)
         await interaction.response.send_message(f"✅ You have successfully claimed the `{role.name}` driver role!", ephemeral=True)
 
+class RolesPageButton(discord.ui.Button):
+    def __init__(self, label, custom_id):
+        super().__init__(label=label, style=discord.ButtonStyle.secondary, custom_id=custom_id)
+
+    async def callback(self, interaction: discord.Interaction):
+        view: RolesView = self.view
+        if self.custom_id == "roles_prev":
+            view.current_page = (view.current_page - 1) % len(view.pages)
+        else:
+            view.current_page = (view.current_page + 1) % len(view.pages)
+        view._mount_page()
+        placeholder = view.pages[view.current_page][0]
+        await interaction.response.edit_message(
+            content=f"**Category:** {placeholder} — page {view.current_page + 1}/{len(view.pages)}",
+            view=view,
+        )
+
 class RolesView(View):
+    """Paginated OS / hardware / desktop role picker.
+
+    Discord allows at most 5 select menus per message, but we have 8
+    categories (Arch / Debian / Fedora / Windows / BSD / Independent /
+    Graphics / DE-WM), so categories are split across pages and the
+    ◀ ▶ buttons flip between them.
+    """
+
     def __init__(self):
         super().__init__(timeout=None)
         arch_opts = [
@@ -862,10 +891,9 @@ class RolesView(View):
             discord.SelectOption(label="Garuda Linux", value="1521871074994950295"),
             discord.SelectOption(label="Artix Linux", value="1521871078308184074"),
             discord.SelectOption(label="Black Arch", value="1522137195102867526"),
-            discord.SelectOption(label="CachyOS", value="1522143963904081920")
+            discord.SelectOption(label="CachyOS", value="1522143963904081920"),
         ]
-        self.add_item(DistroSelect(placeholder="Arch / Arch-based", options=arch_opts, custom_id="arch_menu"))
-        deb_ubu_opts = [
+        deb_opts = [
             discord.SelectOption(label="Debian", value="1521870173861056655"),
             discord.SelectOption(label="Ubuntu", value="1521870110552227910"),
             discord.SelectOption(label="Linux Mint", value="1521868791942742026"),
@@ -875,37 +903,84 @@ class RolesView(View):
             discord.SelectOption(label="MX Linux", value="1521871679368986655"),
             discord.SelectOption(label="Deepin", value="1521871896117776468"),
             discord.SelectOption(label="Elementary OS", value="1521872016901406720"),
-            discord.SelectOption(label="Parrot OS", value="1522137253856415784")
+            discord.SelectOption(label="Parrot OS", value="1522137253856415784"),
         ]
-        self.add_item(DistroSelect(placeholder="Debian & Ubuntu-based", options=deb_ubu_opts, custom_id="deb_ubu_menu"))
-        win_bsd_opts = [
+        fedora_opts = [
+            discord.SelectOption(label="Fedora", value="1521872360393670819"),
+            discord.SelectOption(label="Nobara", value="1521872173688422420"),
+        ]
+        win_opts = [
             discord.SelectOption(label="Windows 11", value="1521909235594825941"),
             discord.SelectOption(label="Windows 10", value="1521909403496742973"),
             discord.SelectOption(label="Windows 8", value="1521909451739893982"),
             discord.SelectOption(label="Windows 7", value="1521909341802725427"),
             discord.SelectOption(label="Windows Vista", value="1522212167393214514"),
             discord.SelectOption(label="Windows XP", value="1522212092663300248"),
+        ]
+        bsd_opts = [
             discord.SelectOption(label="FreeBSD", value="1521909235594825999"),
             discord.SelectOption(label="GhostBSD", value="1522211951709519872"),
             discord.SelectOption(label="OpenBSD", value="1522211033073324234"),
             discord.SelectOption(label="DragonFly BSD", value="1522211796532854826"),
-            discord.SelectOption(label="NetBSD", value="1522211599744499834")
+            discord.SelectOption(label="NetBSD", value="1522211599744499834"),
         ]
-        self.add_item(DistroSelect(placeholder="Windows & BSD Family", options=win_bsd_opts, custom_id="win_bsd_menu"))
         indep_opts = [
             discord.SelectOption(label="Gentoo", value="1521870225228955798"),
-            discord.SelectOption(label="Nobara", value="1521872173688422420"),
-            discord.SelectOption(label="Fedora", value="1521872360393670819"),
             discord.SelectOption(label="Red Star OS", value="1521872534117679206"),
             discord.SelectOption(label="Void Linux", value="1521872635968098344"),
             discord.SelectOption(label="NixOS", value="1534520300807520379"),
             discord.SelectOption(label="Alpine Linux", value="1521872759691542588"),
             discord.SelectOption(label="openSUSE", value="1521873026776301608"),
             discord.SelectOption(label="Slackware", value="1521873129868365964"),
-            discord.SelectOption(label="Chimera Linux", value="1534519999681658941")
+            discord.SelectOption(label="Chimera Linux", value="1534519999681658941"),
         ]
-        self.add_item(DistroSelect(placeholder="Independent", options=indep_opts, custom_id="indep_menu"))
-        self.add_item(GPUSelect())
+        # Desktop Environment / Window Manager roles (single pick).
+        dewm_opts = [
+            discord.SelectOption(label="KDE Plasma", value="1535969909954183239"),
+            discord.SelectOption(label="GNOME", value="1535970090724495470"),
+            discord.SelectOption(label="XFCE", value="1535970501740990494"),
+            discord.SelectOption(label="Cinnamon", value="1535970676337418240"),
+            discord.SelectOption(label="MATE", value="1535970708046356552"),
+            discord.SelectOption(label="Niri", value="1535970826686431314"),
+            discord.SelectOption(label="Hyprland", value="1535971021008543744"),
+            discord.SelectOption(label="i3", value="1535971133260701716"),
+            discord.SelectOption(label="Sway", value="1535971171260964944"),
+            discord.SelectOption(label="Mango WM", value="1535971353801396275"),
+        ]
+        self.pages = [
+            ("🐧 Arch / Arch-based", arch_opts, "roles_arch", False),
+            ("🐧 Debian & Ubuntu-based", deb_opts, "roles_deb", False),
+            ("🐧 Fedora / RHEL-based", fedora_opts, "roles_fedora", False),
+            ("🪟 Windows", win_opts, "roles_windows", False),
+            ("🧬 BSD Family", bsd_opts, "roles_bsd", False),
+            ("🐧 Independent", indep_opts, "roles_indep", False),
+            ("🖥️ Graphics Driver", [], "roles_gpu", True),
+            ("🖼️ Desktop Environment / WM", dewm_opts, "roles_dewm", False),
+        ]
+        self.current_page = 0
+        self._select_item = None
+        self.prev_button = RolesPageButton("◀️", "roles_prev")
+        self.next_button = RolesPageButton("▶️", "roles_next")
+        self.add_item(self.prev_button)
+        self.add_item(self.next_button)
+        self._mount_page()
+
+    def _build_select(self):
+        placeholder, options, custom_id, is_gpu = self.pages[self.current_page]
+        if is_gpu:
+            return GPUSelect()
+        return DistroSelect(
+            placeholder=placeholder,
+            options=options,
+            custom_id=custom_id,
+            max_values=1 if custom_id == "roles_dewm" else len(options),
+        )
+
+    def _mount_page(self):
+        if self._select_item is not None:
+            self.remove_item(self._select_item)
+        self._select_item = self._build_select()
+        self.add_item(self._select_item)
 
 # ==========================================
 # Ticket system
@@ -1272,7 +1347,7 @@ async def on_ready():
     # is_running() guard — would abort the rest of on_ready right here
     # and skip everything below (event/news/distro state restoration).
     # is_running() makes every restart/reconnect idempotent and safe.
-    for loop_job in (half_hourly_reminder, reset_daily_xp, daily_tech_news, sunday_xp_event, daily_distro_vs):
+    for loop_job in (half_hourly_reminder, reset_daily_xp, daily_tech_news, sunday_xp_event, daily_distro_vs, clear_memory_caches):
         if not loop_job.is_running():
             loop_job.start()
     try:
@@ -1376,8 +1451,14 @@ async def on_ready():
             except Exception as e:
                 print(f"  ⚠️ Roles channel lock failed: {e}")
             role_embed = discord.Embed(
-                title="Choose Your OS & Hardware",
-                description="Select your preferred distributions and graphics drivers from the menus below.\n*(Pick any and as many OS roles as you like — no dual-boot limit anymore!)*",
+                title="Choose Your OS, Hardware & Desktop",
+                description=(
+                    "Use the **◀ ▶** buttons below to browse the categories:\n"
+                    "🐧 **Arch** • **Debian** • **Fedora** • **Independent**\n"
+                    "🪟 **Windows** • **🧬 BSD** • **🖥️ Graphics** • **🖼️ DE / WM**\n\n"
+                    "Pick any and as many **OS** roles as you like — no dual-boot limit anymore! "
+                    "For **Graphics** and **DE / WM**, only one selection is kept at a time."
+                ),
                 color=discord.Color.dark_theme()
             )
             await roles_channel.send(embed=role_embed, view=RolesView())
@@ -1438,6 +1519,11 @@ async def on_member_join(member):
 
 @bot.event
 async def on_member_remove(member):
+    # Memory hygiene: drop this member's in-RAM cache rows immediately so we
+    # don't keep data for users who no longer exist.
+    user_message_cache.pop(member.id, None)
+    xp_message_counter.pop(member.id, None)
+    last_user_message_time.pop(member.id, None)
     try:
         guild_config = await config_collection.find_one({"_id": str(member.guild.id)})
         if guild_config and "join_channel" in guild_config:
@@ -1454,6 +1540,12 @@ async def on_member_remove(member):
                 await join_channel.send(f"⚠️ **{member.name}** has left the server.", file=file)
     except Exception as e:
         print(f"Remove Image Render Error: {e}")
+
+@bot.event
+async def on_guild_channel_delete(channel):
+    # A terminal channel can disappear by being deleted directly (not just
+    # via ?close); always clean up its sandbox state to avoid a memory leak.
+    TERMINAL_STATE.pop(channel.id, None)
 
 # ==========================================
 # Warning system
@@ -1524,6 +1616,20 @@ ALLOWED_TERMINAL_MODULES = {
 
 TERMINAL_STATE = {}
 
+# Function names that are blocked when called directly. `open` blocks
+# io.open() / codecs.open() / plain open(...) file access; getattr/setattr/
+# delattr/vars can smuggle dunder lookups (getattr(obj, "__class__")), and
+# breakpoint() drops straight into the debugger, so all of them are removed.
+BLOCKED_SAFE_NAMES = [
+    "open", "eval", "exec", "compile", "__import__", "globals", "locals",
+    "getattr", "setattr", "delattr", "vars", "breakpoint", "memoryview",
+]
+
+# Attribute calls that can reach outside the sandbox (subprocess / os.system
+# style escapes). Attribute name "open" covers io.open(), codecs.open(), etc.
+BLOCKED_SAFE_ATTRS = ["system", "popen", "spawn", "run", "open"]
+
+
 def check_code_safety(code):
     """AST-based safety filter for the terminal sandbox."""
     try:
@@ -1541,12 +1647,24 @@ def check_code_safety(code):
             root_module = (node.module or "").split(".")[0]
             if root_module not in ALLOWED_TERMINAL_MODULES:
                 return False, f"Security Error: Module `{node.module}` is not on the sandbox allow-list."
+        if isinstance(node, ast.Attribute):
+            # CRITICAL FIX: block ALL dunder attribute access. The classic
+            # Python sandbox escape chain reaches into objects through
+            # __class__ / __bases__ / __subclasses__ / __globals__ and then
+            # runs os.system(...) or reads the bot token from os.environ.
+            # Before this check, `().__class__.__bases__[0].__subclasses__()
+            # ...` and `io.open("/etc/passwd").read()` completely bypassed
+            # the old allow-list. Legitimate sandbox code never calls dunders
+            # explicitly (x + y, x[key], len(x) don't produce Attribute
+            # nodes), so blocking them costs nothing in practice.
+            if node.attr.startswith("__") and node.attr.endswith("__"):
+                return False, f"Security Error: Access to `{node.attr}` is blocked in the sandbox."
         if isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name):
-                if node.func.id in ['open', 'eval', 'exec', '__import__', 'globals', 'locals', 'compile']:
+                if node.func.id in BLOCKED_SAFE_NAMES:
                     return False, f"Security Error: The function `{node.func.id}` is blocked in the sandbox."
             elif isinstance(node.func, ast.Attribute):
-                if node.func.attr in ['system', 'popen', 'spawn', 'run']:
+                if node.func.attr in BLOCKED_SAFE_ATTRS:
                     return False, f"Security Error: The attribute `{node.func.attr}` is blocked."
     return True, ""
 
@@ -1735,7 +1853,9 @@ TERMINAL_HELP_TEXT = (
     "filter, all, any, sorted, reversed, isinstance, issubclass, chr, ord,\n"
     "hex, oct, bin, pow, divmod, frozenset, iter, next, plus common exceptions.\n\n"
     "Blocked: open, eval, exec, compile, __import__ (raw), globals, locals,\n"
-    "os.system/popen/spawn/run, and any module not in the list above.\n\n"
+    "getattr, setattr, delattr, vars, breakpoint, os.system/popen/spawn/run,\n"
+    "io.open/codecs.open, ALL __dunder__ attribute access (__class__,\n"
+    "__subclasses__, __globals__ ...), and any module not in the list above.\n\n"
     "Live input() (60 seconds):\n"
     "  The bot now waits live for your reply. When your code calls input(),\n"
     "  it posts a prompt and waits up to 60 seconds for your next message.\n"
@@ -2020,8 +2140,15 @@ async def on_message(message):
     if message.author == bot.user or message.author.bot:
         return
 
+    # DM FIX: private messages have no guild, category, or Member permissions.
+    # Previously `message.channel.category_id` crashed with AttributeError on
+    # every DM and aborted the rest of the handler. AdminPingu only operates
+    # inside the server, so DMs are simply ignored here.
+    if not message.guild:
+        return
+
     # Terminal handler runs first so terminal messages skip spam/XP logic.
-    if message.channel.category_id == 1534663424322179252 and message.channel.name.startswith("terminal-"):
+    if getattr(message.channel, "category_id", None) == 1534663424322179252 and message.channel.name.startswith("terminal-"):
         is_mod = message.author.guild_permissions.manage_messages
         is_owner = str(message.author.id) in (message.channel.topic or "")
 
@@ -2107,6 +2234,7 @@ async def on_message(message):
 
     global last_activity_time
     last_activity_time = time.time()
+    last_user_message_time[message.author.id] = time.time()
     is_mod = message.author.guild_permissions.manage_messages
     if not is_mod:
         if message.channel.id != ACTIVE_EVENT_CHANNEL_ID and message.channel.id not in UNRESTRICTED_MEDIA_CHANNEL_IDS:
@@ -4526,6 +4654,39 @@ async def daily_distro_vs():
 @daily_distro_vs.error
 async def daily_distro_vs_error(error):
     logger.error(f"daily_distro_vs loop crashed: {error}", exc_info=error)
+
+# ==========================================
+# Memory hygiene: keep in-RAM caches bounded
+# ==========================================
+# user_message_cache / xp_message_counter / last_user_message_time used to be
+# plain dicts that grew forever (every user who ever typed kept a row, even
+# after leaving the server or stopping to chat), and TERMINAL_STATE leaked an
+# entry every time a terminal channel was deleted in any way other than
+# ?close. Fix: (1) purge users inactive for over an hour every 30 minutes,
+# (2) drop entries immediately when a member leaves, (3) drop terminal state
+# whenever its channel is deleted.
+CACHE_USER_TTL_SECONDS = 3600
+
+
+@tasks.loop(minutes=30)
+async def clear_memory_caches():
+    await bot.wait_until_ready()
+    try:
+        cutoff = time.time() - CACHE_USER_TTL_SECONDS
+        stale = [uid for uid, ts in last_user_message_time.items() if ts < cutoff]
+        for uid in stale:
+            user_message_cache.pop(uid, None)
+            xp_message_counter.pop(uid, None)
+            last_user_message_time.pop(uid, None)
+        if stale:
+            logger.info(f"🧹 Memory cleanup: removed {len(stale)} inactive user cache entr(y/ies).")
+    except Exception as e:
+        logger.error(f"Memory cleanup error: {e}", exc_info=True)
+
+
+@clear_memory_caches.error
+async def clear_memory_caches_error(error):
+    logger.error(f"clear_memory_caches loop crashed: {error}", exc_info=error)
 
 # ==========================================
 # Admin command: configure the Distro VS channel
