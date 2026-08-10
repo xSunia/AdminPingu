@@ -838,7 +838,7 @@ class GPUSelect(Select):
             discord.SelectOption(label="AMD Graphics", value="1521879224951246928", emoji="<:amd:1521978857278800036>"),
             discord.SelectOption(label="Intel Graphics", value="1521879315648614410", emoji="<:intel:1521978932524613745>")
         ]
-        super().__init__(placeholder="<:nvidia:1521978895950418070> Select Your Graphics Driver", min_values=0, max_values=1, options=options, custom_id="gpu_select")
+        super().__init__(placeholder="🖥️ Select Your Graphics Driver", min_values=0, max_values=1, options=options, custom_id="gpu_select")
 
     async def callback(self, interaction: discord.Interaction):
         if not self.values:
@@ -919,32 +919,32 @@ class RolesView(View):
             description=(
                 "Pick any OS role from the dropdowns below — no dual-boot limit! "
                 "For **Graphics**, only one selection is kept at a time.\n\n"
-                "**<:arch:1536476838942216263> Arch Based** — Arch & Arch-based distros\n"
-                "**<:debian:1536476872114831370> Debian & Ubuntu Based** — Debian-family distros\n"
-                "**<:fedora:1536477069251448912> Fedora & Independent** — Fedora/RHEL-based + independent distros\n"
-                "**<:win10:1536477231507972106> FreeBSD & Windows Family** — BSD systems + Windows\n"
-                "**<:nvidia:1521978895950418070> Graphics** — GPU driver roles\n"
-                "**<:hyperland:1536477403118051368> DE / WM** — check the next message for desktops & window managers"
+                "**🐧 Arch Based** — Arch & Arch-based distros\n"
+                "**🐧 Debian & Ubuntu Based** — Debian-family distros\n"
+                "**🐧 Fedora & Independent** — Fedora/RHEL-based + independent distros\n"
+                "**🧬 FreeBSD & Windows Family** — BSD systems + Windows\n"
+                "**🖥️ Graphics** — GPU driver roles\n"
+                "**🖼️ DE / WM** — check the next message for desktops & window managers"
             ),
             color=discord.Color.dark_theme(),
         )
         self.add_item(DistroSelect(
-            placeholder="<:arch:1536476838942216263> 1. Select Arch / Arch-based roles",
+            placeholder="🐧 1. Select Arch / Arch-based roles",
             options=arch_opts,
             custom_id="roles_arch",
         ))
         self.add_item(DistroSelect(
-            placeholder="<:debian:1536476872114831370> 2. Select Debian & Ubuntu-based roles",
+            placeholder="🐧 2. Select Debian & Ubuntu-based roles",
             options=deb_opts,
             custom_id="roles_deb",
         ))
         self.add_item(DistroSelect(
-            placeholder="<:fedora:1536477069251448912> 3. Select Fedora & Independent roles",
+            placeholder="🐧 3. Select Fedora & Independent roles",
             options=fedora_indep_opts,
             custom_id="roles_fedora_indep",
         ))
         self.add_item(DistroSelect(
-            placeholder="<:win10:1536477231507972106> 4. Select FreeBSD & Windows roles",
+            placeholder="🧬 4. Select FreeBSD & Windows roles",
             options=bsd_win_opts,
             custom_id="roles_bsd_win",
         ))
@@ -969,7 +969,7 @@ class DewmView(View):
             discord.SelectOption(label="Mango WM", value="1535971353801396275", emoji="<:mangowm:1536489244011270184>"),
         ]
         self.embed = discord.Embed(
-            title="<:hyperland:1536477403118051368> Desktop Environment / Window Manager",
+            title="🖼️ Desktop Environment / Window Manager",
             description=(
                 "Pick your **DE / WM** below. Only **one** selection is kept at "
                 "a time — choosing a new one automatically removes the previous one."
@@ -977,7 +977,7 @@ class DewmView(View):
             color=discord.Color.dark_theme(),
         )
         self.add_item(DistroSelect(
-            placeholder="<:hyperland:1536477403118051368> Select your DE / WM",
+            placeholder="🖼️ Select your DE / WM",
             options=dewm_opts,
             custom_id="roles_dewm",
             max_values=1,
