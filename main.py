@@ -2758,6 +2758,43 @@ async def dbstatus(ctx):
         embed.add_field(name="Collection Error", value=f"`{e}`", inline=False)
     await ctx.send(embed=embed)
 
+@bot.hybrid_command(
+    name="emojiids",
+    aliases=["eids"],
+    description="DMs you the name and ID of every custom emoji in the server (mod)."
+)
+@commands.has_permissions(manage_messages=True)
+async def emojiids(ctx):
+    if ctx.interaction:
+        await ctx.defer(ephemeral=True)
+    emojis = sorted(ctx.guild.emojis, key=lambda e: e.name.lower())
+    if not emojis:
+        return await ctx.send("❌ This server has no custom emojis to list.", ephemeral=True)
+    lines = [f"{emoji} `{emoji.name}` `{emoji.id}`" for emoji in emojis]
+    header = f"**Total:** {len(emojis)} custom emojis in this server"
+    messages = []
+    current_chunk = header
+    for line in lines:
+        if len(current_chunk) + len(line) + 1 > 2000:
+            messages.append(current_chunk)
+            current_chunk = line
+        else:
+            current_chunk += "\n" + line
+    messages.append(current_chunk)
+    try:
+        for message in messages:
+            await ctx.author.send(message)
+    except discord.Forbidden:
+        return await ctx.send(
+            "⚠️ I couldn't send you the emoji list because your DMs are closed. "
+            "Enable DMs from server members and try again.",
+            ephemeral=True,
+        )
+    except Exception as e:
+        logger.error(f"emojiids DM send error: {e}", exc_info=True)
+        return await ctx.send("❌ Something went wrong while sending the emoji list.", ephemeral=True)
+    await ctx.send(f"✅ Sent **{len(emojis)}** emoji IDs/names to your DMs.", ephemeral=True)
+
 @bot.hybrid_command(name="ban", aliases=["b"], description="Bans a user from the server.")
 @commands.has_permissions(ban_members=True)
 async def ban(ctx, member: discord.Member, *, reason="No reason provided"):
@@ -4087,6 +4124,7 @@ async def shortcuts(ctx):
               "`?undo` → `undohistory`, `cleanbotmsgs`\n"
               "`?warning` → `warn` | `?warnings` → `warns`, `w`\n"
               "`?clearwarnings` → `cw`, `clwarns`\n"
+              "`?emojiids` → `eids`\n"
               "`?ban` → `b` | `?unban` → `ub`\n"
               "`?setnewschannel` → `snc` | `?setdistrochannel` → `sdc`, `setdistrovs`",
         inline=False
@@ -4130,7 +4168,8 @@ MODERATION_HELP = (
     "`?setjoinchannel` - Sets the channel for welcome banners\n"
     "`?messagesendadminpingu` - Sets the channel for the automated rules reminder\n"
     "`?fixlevels` - Recalculates everyone's level against the current XP curve\n"
-    "`?dbstatus` - Checks MongoDB connectivity and collection counts"
+    "`?dbstatus` - Checks MongoDB connectivity and collection counts\n"
+    "`?emojiids` - DMs you every custom emoji's name and ID, sorted alphabetically"
 )
 
 STATS_HELP = (
