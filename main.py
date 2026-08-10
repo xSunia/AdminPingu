@@ -834,11 +834,11 @@ class DistroSelect(Select):
 class GPUSelect(Select):
     def __init__(self):
         options = [
-            discord.SelectOption(label="NVIDIA Graphics", value="1521879270530486414", emoji="🟩"),
-            discord.SelectOption(label="AMD Graphics", value="1521879224951246928", emoji="🟥"),
-            discord.SelectOption(label="Intel Graphics", value="1521879315648614410", emoji="🟦")
+            discord.SelectOption(label="NVIDIA Graphics", value="1521879270530486414", emoji="<:nvidia:1521978895950418070>"),
+            discord.SelectOption(label="AMD Graphics", value="1521879224951246928", emoji="<:amd:1521978857278800036>"),
+            discord.SelectOption(label="Intel Graphics", value="1521879315648614410", emoji="<:intel:1521978932524613745>")
         ]
-        super().__init__(placeholder="Select Your Graphics Driver", min_values=0, max_values=1, options=options, custom_id="gpu_select")
+        super().__init__(placeholder="<:nvidia:1521978895950418070> Select Your Graphics Driver", min_values=0, max_values=1, options=options, custom_id="gpu_select")
 
     async def callback(self, interaction: discord.Interaction):
         if not self.values:
@@ -883,7 +883,7 @@ class RolesView(View):
             discord.SelectOption(label="Linux Mint", value="1521868791942742026", emoji="<:linuxmint:1521986158656094309>"),
             discord.SelectOption(label="Kali Linux", value="1521871399403393044", emoji="<:kali:1536476996731805726>"),
             discord.SelectOption(label="Pop!_OS", value="1521871613958819860", emoji="<:pop_os:1521985910076604536>"),
-            discord.SelectOption(label="Zorin OS", value="1521871816321404969"),
+            discord.SelectOption(label="Zorin OS", value="1521871816321404969", emoji="<:zorin:1536487843034308640>"),
             discord.SelectOption(label="MX Linux", value="1521871679368986655", emoji="<:mxlinux:1521985961364295801>"),
             discord.SelectOption(label="Deepin", value="1521871896117776468", emoji="<:deepin:1521985680484601897>"),
             discord.SelectOption(label="Elementary OS", value="1521872016901406720", emoji="<:elementary:1521985644174250124>"),
@@ -909,42 +909,42 @@ class RolesView(View):
             discord.SelectOption(label="NetBSD", value="1522211599744499834", emoji="<:netbsd:1536477353687912511>"),
             discord.SelectOption(label="Windows 11", value="1521909235594825941", emoji="<:win11:1536477207247978638>"),
             discord.SelectOption(label="Windows 10", value="1521909403496742973", emoji="<:win10:1536477231507972106>"),
-            discord.SelectOption(label="Windows 8", value="1521909451739893982"),
+            discord.SelectOption(label="Windows 8", value="1521909451739893982", emoji="<:win7:1536477261228671067>"),
             discord.SelectOption(label="Windows 7", value="1521909341802725427", emoji="<:win7:1536477261228671067>"),
-            discord.SelectOption(label="Windows Vista", value="1522212167393214514"),
-            discord.SelectOption(label="Windows XP", value="1522212092663300248"),
+            discord.SelectOption(label="Windows Vista", value="1522212167393214514", emoji="<:win7:1536477261228671067>"),
+            discord.SelectOption(label="Windows XP", value="1522212092663300248", emoji="<:win7:1536477261228671067>"),
         ]
         self.embed = discord.Embed(
             title="Choose Your OS, Hardware & Desktop",
             description=(
                 "Pick any OS role from the dropdowns below — no dual-boot limit! "
                 "For **Graphics**, only one selection is kept at a time.\n\n"
-                "**🐧 Arch Based** — Arch & Arch-based distros\n"
-                "**🐧 Debian & Ubuntu Based** — Debian-family distros\n"
-                "**🐧 Fedora & Independent** — Fedora/RHEL-based + independent distros\n"
-                "**🧬 FreeBSD & Windows Family** — BSD systems + Windows\n"
-                "**🖥️ Graphics** — GPU driver roles\n"
-                "**🖼️ DE / WM** — check the next message for desktops & window managers"
+                "**<:arch:1536476838942216263> Arch Based** — Arch & Arch-based distros\n"
+                "**<:debian:1536476872114831370> Debian & Ubuntu Based** — Debian-family distros\n"
+                "**<:fedora:1536477069251448912> Fedora & Independent** — Fedora/RHEL-based + independent distros\n"
+                "**<:win10:1536477231507972106> FreeBSD & Windows Family** — BSD systems + Windows\n"
+                "**<:nvidia:1521978895950418070> Graphics** — GPU driver roles\n"
+                "**<:hyperland:1536477403118051368> DE / WM** — check the next message for desktops & window managers"
             ),
             color=discord.Color.dark_theme(),
         )
         self.add_item(DistroSelect(
-            placeholder="🐧 1. Select Arch / Arch-based roles",
+            placeholder="<:arch:1536476838942216263> 1. Select Arch / Arch-based roles",
             options=arch_opts,
             custom_id="roles_arch",
         ))
         self.add_item(DistroSelect(
-            placeholder="🐧 2. Select Debian & Ubuntu-based roles",
+            placeholder="<:debian:1536476872114831370> 2. Select Debian & Ubuntu-based roles",
             options=deb_opts,
             custom_id="roles_deb",
         ))
         self.add_item(DistroSelect(
-            placeholder="🐧 3. Select Fedora & Independent roles",
+            placeholder="<:fedora:1536477069251448912> 3. Select Fedora & Independent roles",
             options=fedora_indep_opts,
             custom_id="roles_fedora_indep",
         ))
         self.add_item(DistroSelect(
-            placeholder="🧬 4. Select FreeBSD & Windows roles",
+            placeholder="<:win10:1536477231507972106> 4. Select FreeBSD & Windows roles",
             options=bsd_win_opts,
             custom_id="roles_bsd_win",
         ))
@@ -957,19 +957,19 @@ class DewmView(View):
     def __init__(self):
         super().__init__(timeout=None)
         dewm_opts = [
-            discord.SelectOption(label="KDE Plasma", value="1535969909954183239"),
+            discord.SelectOption(label="KDE Plasma", value="1535969909954183239", emoji="<:kde:1536489019813265428>"),
             discord.SelectOption(label="GNOME", value="1535970090724495470", emoji="<:gnome:1536477450308034732>"),
             discord.SelectOption(label="XFCE", value="1535970501740990494", emoji="<:xfce:1536477584358121472>"),
             discord.SelectOption(label="Cinnamon", value="1535970676337418240", emoji="<:cinnamon:1536477619174768762>"),
-            discord.SelectOption(label="MATE", value="1535970708046356552"),
+            discord.SelectOption(label="MATE", value="1535970708046356552", emoji="<:mate:1536489133373915187>"),
             discord.SelectOption(label="Niri", value="1535970826686431314", emoji="<:niri:1536477429118271618>"),
             discord.SelectOption(label="Hyprland", value="1535971021008543744", emoji="<:hyperland:1536477403118051368>"),
-            discord.SelectOption(label="i3", value="1535971133260701716"),
-            discord.SelectOption(label="Sway", value="1535971171260964944"),
-            discord.SelectOption(label="Mango WM", value="1535971353801396275"),
+            discord.SelectOption(label="i3", value="1535971133260701716", emoji="<:i3:1536489182069784586>"),
+            discord.SelectOption(label="Sway", value="1535971171260964944", emoji="<:sway:1536489216140247082>"),
+            discord.SelectOption(label="Mango WM", value="1535971353801396275", emoji="<:mangowm:1536489244011270184>"),
         ]
         self.embed = discord.Embed(
-            title="🖼️ Desktop Environment / Window Manager",
+            title="<:hyperland:1536477403118051368> Desktop Environment / Window Manager",
             description=(
                 "Pick your **DE / WM** below. Only **one** selection is kept at "
                 "a time — choosing a new one automatically removes the previous one."
@@ -977,7 +977,7 @@ class DewmView(View):
             color=discord.Color.dark_theme(),
         )
         self.add_item(DistroSelect(
-            placeholder="🖼️ Select your DE / WM",
+            placeholder="<:hyperland:1536477403118051368> Select your DE / WM",
             options=dewm_opts,
             custom_id="roles_dewm",
             max_values=1,
