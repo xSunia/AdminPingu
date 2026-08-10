@@ -856,158 +856,132 @@ class GPUSelect(Select):
         await interaction.user.add_roles(role)
         await interaction.response.send_message(f"✅ You have successfully claimed the `{role.name}` driver role!", ephemeral=True)
 
-class RolesCategorySelect(Select):
-    """Top dropdown: pick which role category to show in the second menu."""
-
-    def __init__(self):
-        options = [
-            discord.SelectOption(label="Arch", value="roles_arch", emoji="🐧"),
-            discord.SelectOption(label="Debian", value="roles_deb", emoji="🐧"),
-            discord.SelectOption(label="Fedora", value="roles_fedora", emoji="🐧"),
-            discord.SelectOption(label="Windows", value="roles_windows", emoji="🪟"),
-            discord.SelectOption(label="BSD", value="roles_bsd", emoji="🧬"),
-            discord.SelectOption(label="Independent", value="roles_indep", emoji="🐧"),
-            discord.SelectOption(label="Graphics", value="roles_gpu", emoji="🖥️"),
-            discord.SelectOption(label="DE / WM", value="roles_dewm", emoji="🖼️"),
-        ]
-        super().__init__(
-            placeholder="🎯 1. Choose a category...",
-            min_values=1,
-            max_values=1,
-            options=options,
-            custom_id="roles_category",
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-        view: RolesView = self.view
-        view.current_category = self.values[0]
-        view._mount_content()
-        view.embed.description = view._build_description()
-        await interaction.response.edit_message(embed=view.embed, view=view)
-
-
 class RolesView(View):
-    """Two-menu role picker: a category dropdown + a role dropdown.
+    """Server role picker, one menu per category (FIRST message).
 
-    Discord caps a message at 5 action rows, and we have 8 role categories —
-    too many for separate select menus. Instead the first menu picks the
-    category and the second menu swaps in that category's roles on the fly,
-    so it stays one clean message with no pagination.
+    Discord lets us stack up to 5 select menus on a single message, so the
+    first roles message hosts five categories side by side: Arch Based,
+    Debian & Ubuntu Based, Fedora & Independent, FreeBSD & Windows Family and
+    Graphics. The DE & WM menu doesn't fit on the first message anymore, so it
+    is posted as a separate second message (see DewmView below).
     """
 
     def __init__(self):
         super().__init__(timeout=None)
         arch_opts = [
-            discord.SelectOption(label="Arch Linux", value="1521868543799328808"),
-            discord.SelectOption(label="Manjaro", value="1521870392472502344"),
-            discord.SelectOption(label="EndeavourOS", value="1521870674669338654"),
-            discord.SelectOption(label="Garuda Linux", value="1521871074994950295"),
-            discord.SelectOption(label="Artix Linux", value="1521871078308184074"),
-            discord.SelectOption(label="Black Arch", value="1522137195102867526"),
-            discord.SelectOption(label="CachyOS", value="1522143963904081920"),
+            discord.SelectOption(label="Arch Linux", value="1521868543799328808", emoji="<:arch:1536476838942216263>"),
+            discord.SelectOption(label="Manjaro", value="1521870392472502344", emoji="<:manjaro:1521985873313271960>"),
+            discord.SelectOption(label="EndeavourOS", value="1521870674669338654", emoji="<:endeavouros:1521986003479298219>"),
+            discord.SelectOption(label="Garuda Linux", value="1521871074994950295", emoji="<:garuda:1536476906784956436>"),
+            discord.SelectOption(label="Artix Linux", value="1521871078308184074", emoji="<:artix:1521985617074851860>"),
+            discord.SelectOption(label="Black Arch", value="1522137195102867526", emoji="<:blackarch:1536477527722434653>"),
+            discord.SelectOption(label="CachyOS", value="1522143963904081920", emoji="<:cachy:1536476853789925416>"),
         ]
         deb_opts = [
-            discord.SelectOption(label="Debian", value="1521870173861056655"),
-            discord.SelectOption(label="Ubuntu", value="1521870110552227910"),
-            discord.SelectOption(label="Linux Mint", value="1521868791942742026"),
-            discord.SelectOption(label="Kali Linux", value="1521871399403393044"),
-            discord.SelectOption(label="Pop!_OS", value="1521871613958819860"),
+            discord.SelectOption(label="Debian", value="1521870173861056655", emoji="<:debian:1536476872114831370>"),
+            discord.SelectOption(label="Ubuntu", value="1521870110552227910", emoji="<:ubuntu:1521985775170752642>"),
+            discord.SelectOption(label="Linux Mint", value="1521868791942742026", emoji="<:linuxmint:1521986158656094309>"),
+            discord.SelectOption(label="Kali Linux", value="1521871399403393044", emoji="<:kali:1536476996731805726>"),
+            discord.SelectOption(label="Pop!_OS", value="1521871613958819860", emoji="<:pop_os:1521985910076604536>"),
             discord.SelectOption(label="Zorin OS", value="1521871816321404969"),
-            discord.SelectOption(label="MX Linux", value="1521871679368986655"),
-            discord.SelectOption(label="Deepin", value="1521871896117776468"),
-            discord.SelectOption(label="Elementary OS", value="1521872016901406720"),
-            discord.SelectOption(label="Parrot OS", value="1522137253856415784"),
+            discord.SelectOption(label="MX Linux", value="1521871679368986655", emoji="<:mxlinux:1521985961364295801>"),
+            discord.SelectOption(label="Deepin", value="1521871896117776468", emoji="<:deepin:1521985680484601897>"),
+            discord.SelectOption(label="Elementary OS", value="1521872016901406720", emoji="<:elementary:1521985644174250124>"),
+            discord.SelectOption(label="Parrot OS", value="1522137253856415784", emoji="<:parrot:1536476967493173481>"),
         ]
-        fedora_opts = [
-            discord.SelectOption(label="Fedora", value="1521872360393670819"),
-            discord.SelectOption(label="Nobara", value="1521872173688422420"),
+        fedora_indep_opts = [
+            discord.SelectOption(label="Fedora", value="1521872360393670819", emoji="<:fedora:1536477069251448912>"),
+            discord.SelectOption(label="Nobara", value="1521872173688422420", emoji="<:nobara:1536477048086986773>"),
+            discord.SelectOption(label="Gentoo", value="1521870225228955798", emoji="<:gentoo:1536476893300138135>"),
+            discord.SelectOption(label="Red Star OS", value="1521872534117679206", emoji="<:redstaros:1536477117741662329>"),
+            discord.SelectOption(label="Void Linux", value="1521872635968098344", emoji="<:void:1536477143977037956>"),
+            discord.SelectOption(label="NixOS", value="1534520300807520379", emoji="<:nixos:1536477164227010600>"),
+            discord.SelectOption(label="Alpine Linux", value="1521872759691542588", emoji="<:alpine:1536477555274547271>"),
+            discord.SelectOption(label="openSUSE", value="1521873026776301608", emoji="<:opensuse:1536477479425024070>"),
+            discord.SelectOption(label="Slackware", value="1521873129868365964", emoji="<:slcakware:1536477186851344544>"),
+            discord.SelectOption(label="Chimera Linux", value="1534519999681658941", emoji="<:chimera:1536484553592541225>"),
         ]
-        win_opts = [
-            discord.SelectOption(label="Windows 11", value="1521909235594825941"),
-            discord.SelectOption(label="Windows 10", value="1521909403496742973"),
+        bsd_win_opts = [
+            discord.SelectOption(label="FreeBSD", value="1521909235594825999", emoji="<:freesbd:1536477374378410064>"),
+            discord.SelectOption(label="GhostBSD", value="1522211951709519872", emoji="<:ghostbsd:1536477283626389555>"),
+            discord.SelectOption(label="OpenBSD", value="1522211033073324234", emoji="<:openbsd:1536477302496694282>"),
+            discord.SelectOption(label="DragonFly BSD", value="1522211796532854826", emoji="<:dragonfltbsd:1536477329172205758>"),
+            discord.SelectOption(label="NetBSD", value="1522211599744499834", emoji="<:netbsd:1536477353687912511>"),
+            discord.SelectOption(label="Windows 11", value="1521909235594825941", emoji="<:win11:1536477207247978638>"),
+            discord.SelectOption(label="Windows 10", value="1521909403496742973", emoji="<:win10:1536477231507972106>"),
             discord.SelectOption(label="Windows 8", value="1521909451739893982"),
-            discord.SelectOption(label="Windows 7", value="1521909341802725427"),
+            discord.SelectOption(label="Windows 7", value="1521909341802725427", emoji="<:win7:1536477261228671067>"),
             discord.SelectOption(label="Windows Vista", value="1522212167393214514"),
             discord.SelectOption(label="Windows XP", value="1522212092663300248"),
         ]
-        bsd_opts = [
-            discord.SelectOption(label="FreeBSD", value="1521909235594825999"),
-            discord.SelectOption(label="GhostBSD", value="1522211951709519872"),
-            discord.SelectOption(label="OpenBSD", value="1522211033073324234"),
-            discord.SelectOption(label="DragonFly BSD", value="1522211796532854826"),
-            discord.SelectOption(label="NetBSD", value="1522211599744499834"),
-        ]
-        indep_opts = [
-            discord.SelectOption(label="Gentoo", value="1521870225228955798"),
-            discord.SelectOption(label="Red Star OS", value="1521872534117679206"),
-            discord.SelectOption(label="Void Linux", value="1521872635968098344"),
-            discord.SelectOption(label="NixOS", value="1534520300807520379"),
-            discord.SelectOption(label="Alpine Linux", value="1521872759691542588"),
-            discord.SelectOption(label="openSUSE", value="1521873026776301608"),
-            discord.SelectOption(label="Slackware", value="1521873129868365964"),
-            discord.SelectOption(label="Chimera Linux", value="1534519999681658941"),
-        ]
-        # Desktop Environment / Window Manager roles (single pick).
+        self.embed = discord.Embed(
+            title="Choose Your OS, Hardware & Desktop",
+            description=(
+                "Pick any OS role from the dropdowns below — no dual-boot limit! "
+                "For **Graphics**, only one selection is kept at a time.\n\n"
+                "**🐧 Arch Based** — Arch & Arch-based distros\n"
+                "**🐧 Debian & Ubuntu Based** — Debian-family distros\n"
+                "**🐧 Fedora & Independent** — Fedora/RHEL-based + independent distros\n"
+                "**🧬 FreeBSD & Windows Family** — BSD systems + Windows\n"
+                "**🖥️ Graphics** — GPU driver roles\n"
+                "**🖼️ DE / WM** — check the next message for desktops & window managers"
+            ),
+            color=discord.Color.dark_theme(),
+        )
+        self.add_item(DistroSelect(
+            placeholder="🐧 1. Select Arch / Arch-based roles",
+            options=arch_opts,
+            custom_id="roles_arch",
+        ))
+        self.add_item(DistroSelect(
+            placeholder="🐧 2. Select Debian & Ubuntu-based roles",
+            options=deb_opts,
+            custom_id="roles_deb",
+        ))
+        self.add_item(DistroSelect(
+            placeholder="🐧 3. Select Fedora & Independent roles",
+            options=fedora_indep_opts,
+            custom_id="roles_fedora_indep",
+        ))
+        self.add_item(DistroSelect(
+            placeholder="🧬 4. Select FreeBSD & Windows roles",
+            options=bsd_win_opts,
+            custom_id="roles_bsd_win",
+        ))
+        self.add_item(GPUSelect())
+
+
+class DewmView(View):
+    """Second roles message: DE / WM menu (single pick)."""
+
+    def __init__(self):
+        super().__init__(timeout=None)
         dewm_opts = [
             discord.SelectOption(label="KDE Plasma", value="1535969909954183239"),
-            discord.SelectOption(label="GNOME", value="1535970090724495470"),
-            discord.SelectOption(label="XFCE", value="1535970501740990494"),
-            discord.SelectOption(label="Cinnamon", value="1535970676337418240"),
+            discord.SelectOption(label="GNOME", value="1535970090724495470", emoji="<:gnome:1536477450308034732>"),
+            discord.SelectOption(label="XFCE", value="1535970501740990494", emoji="<:xfce:1536477584358121472>"),
+            discord.SelectOption(label="Cinnamon", value="1535970676337418240", emoji="<:cinnamon:1536477619174768762>"),
             discord.SelectOption(label="MATE", value="1535970708046356552"),
-            discord.SelectOption(label="Niri", value="1535970826686431314"),
-            discord.SelectOption(label="Hyprland", value="1535971021008543744"),
+            discord.SelectOption(label="Niri", value="1535970826686431314", emoji="<:niri:1536477429118271618>"),
+            discord.SelectOption(label="Hyprland", value="1535971021008543744", emoji="<:hyperland:1536477403118051368>"),
             discord.SelectOption(label="i3", value="1535971133260701716"),
             discord.SelectOption(label="Sway", value="1535971171260964944"),
             discord.SelectOption(label="Mango WM", value="1535971353801396275"),
         ]
-        # custom_id -> (label, role options or None for GPU, is_gpu flag)
-        self.categories = {
-            "roles_arch": ("🐧 Arch / Arch-based", arch_opts, False),
-            "roles_deb": ("🐧 Debian & Ubuntu-based", deb_opts, False),
-            "roles_fedora": ("🐧 Fedora / RHEL-based", fedora_opts, False),
-            "roles_windows": ("🪟 Windows", win_opts, False),
-            "roles_bsd": ("🧬 BSD Family", bsd_opts, False),
-            "roles_indep": ("🐧 Independent", indep_opts, False),
-            "roles_gpu": ("🖥️ Graphics Driver", None, True),
-            "roles_dewm": ("🖼️ Desktop Environment / WM", dewm_opts, False),
-        }
-        self.current_category = "roles_arch"
         self.embed = discord.Embed(
-            title="Choose Your OS, Hardware & Desktop",
-            description=self._build_description(),
+            title="🖼️ Desktop Environment / Window Manager",
+            description=(
+                "Pick your **DE / WM** below. Only **one** selection is kept at "
+                "a time — choosing a new one automatically removes the previous one."
+            ),
             color=discord.Color.dark_theme(),
         )
-        self._content_select = None
-        self.add_item(RolesCategorySelect())
-        self._mount_content()
-
-    def _build_description(self):
-        label = self.categories[self.current_category][0]
-        return (
-            "Pick a **category** from the first menu, then choose your roles "
-            "from the second menu below.\n\n"
-            f"**Current category:** {label}\n\n"
-            "OS roles: pick any and as many as you like — no dual-boot limit "
-            "anymore! For **Graphics** and **DE / WM**, only one selection is "
-            "kept at a time."
-        )
-
-    def _build_content_select(self):
-        label, options, is_gpu = self.categories[self.current_category]
-        if is_gpu:
-            return GPUSelect()
-        return DistroSelect(
-            placeholder=f"2. Select roles: {label}",
-            options=options,
-            custom_id=self.current_category,
-            max_values=1 if self.current_category == "roles_dewm" else len(options),
-        )
-
-    def _mount_content(self):
-        if self._content_select is not None:
-            self.remove_item(self._content_select)
-        self._content_select = self._build_content_select()
-        self.add_item(self._content_select)
+        self.add_item(DistroSelect(
+            placeholder="🖼️ Select your DE / WM",
+            options=dewm_opts,
+            custom_id="roles_dewm",
+            max_values=1,
+        ))
 
 # ==========================================
 # Ticket system
@@ -1379,6 +1353,7 @@ async def on_ready():
             loop_job.start()
     try:
         bot.add_view(RolesView())
+        bot.add_view(DewmView())
         bot.add_view(TicketView())
     except Exception as e:
         print(f"View registration error: {e}")
@@ -1479,7 +1454,9 @@ async def on_ready():
                 print(f"  ⚠️ Roles channel lock failed: {e}")
             roles_view = RolesView()
             await roles_channel.send(embed=roles_view.embed, view=roles_view)
-            print("🎭 Roles menu posted in the roles channel.")
+            dewm_view = DewmView()
+            await roles_channel.send(embed=dewm_view.embed, view=dewm_view)
+            print("🎭 Roles menus posted (5 categories + DE/WM second message).")
     except Exception as e:
         print(f"Roles menu post error: {e}")
 
