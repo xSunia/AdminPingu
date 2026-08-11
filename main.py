@@ -27,6 +27,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from PIL import Image, ImageDraw, ImageFont, ImageSequence
 from google import genai
 from google.genai import types
+import datetime as _dt
 
 # =====================================================================
 # Reliability / logging hardening
@@ -2787,6 +2788,135 @@ async def unban(ctx, user_id: int):
         await ctx.send(f"✅ Ban lifted for user: `{user.name}`.")
     except Exception as e:
         await ctx.send(f"❌ Failed to unban: {e}")
+ 
+TARGET_DATE = _dt.date(2026, 8, 8)
+ 
+ 
+def _members_created_on_target_date(guild):
+    matches = []
+    for member in guild.members:
+        if member.bot:
+            continue
+        if member.created_at.astimezone(_dt.timezone.utc).date() == TARGET_DATE:
+            matches.append(member)
+    return matches
+ 
+ 
+def _chunk_lines(lines, header, limit=1900):
+    chunks = []
+    current = header
+    for line in lines:
+        if len(current) + len(line) + 1 > limit:
+            chunks.append(current)
+            current = line
+        else:
+            current += "\n" + line
+    if current:
+        chunks.append(current)
+    return chunks
+ 
+ 
+@bot.hybrid_command(
+    name="findaccounts",
+    aliases=["fa"],
+    description="Finds accounts created on 2026-08-08 and DMs the list in chunks."
+)
+@commands.has_permissions(kick_members=True)
+async def findaccounts(ctx):
+    if ctx.interaction:
+        await ctx.defer(ephemeral=True)
+ 
+    matches = _members_created_on_target_date(ctx.guild)
+    if not matches:
+        return await ctx.send(f"ℹ️ No accounts found that were created on {TARGET_DATE}.", ephemeral=True)
+ 
+    header = f"📋 **Accounts created on {TARGET_DATE}** — Total: {len(matches)}"
+    lines = []
+    for m in matches:
+        created = m.created_at.astimezone(_dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        lines.append(f"• **{m.name}** (`{m.id}`) — created: `{created}`")
+ 
+    chunks = _chunk_lines(lines, header)
+ 
+    try:
+        for chunk in chunks:
+            await ctx.author.send(chunk)
+    except discord.Forbidden:
+        return await ctx.send(
+            "⚠️ Couldn't DM you — your DMs are closed. Enable DMs from server members and try again.",
+            ephemeral=True
+        )
+ 
+    await ctx.send(f"✅ Found {len(matches)} accounts, sent to your DMs in {len(chunks)} message(s).", ephemeral=True)
+ 
+ 
+@bot.hybrid_command(
+    name="banall",
+    aliases=["bulkban"],
+    description="Bans ALL accounts created on 2026-08-08 (admin, irreversible)."
+)
+@commands.has_permissions(administrator=True)
+async def banall(ctx):
+    matches = _members_created_on_target_date(ctx.guild)
+    me_top_role = ctx.guild.me.top_role
+    safe_matches = [
+        m for m in matches
+        if m.id != ctx.guild.owner_id
+        and m.top_role < me_top_role
+    ]
+    skipped = len(matches) - len(safe_matches)
+ 
+    if not safe_matches:
+        return await ctx.send(f"ℹ️ No bannable accounts found for {TARGET_DATE} ({skipped} skipped for safety).")
+ 
+    preview = "\n".join(f"• {m.name} (`{m.id}`)" for m in safe_matches[:15])
+    more_note = f"\n…and {len(safe_matches) - 15} more." if len(safe_matches) > 15 else ""
+ 
+    def check(msg):
+        return msg.author == ctx.author and msg.channel == ctx.channel and msg.content.lower() == "y"
+ 
+    await ctx.send(
+        f"⚠️ **WARNING:** About to ban **{len(safe_matches)}** accounts created on {TARGET_DATE} "
+        f"(irreversible)! ({skipped} skipped due to role/ownership safety checks)\n\n"
+        f"{preview}{more_note}\n\n"
+        f"Type `y` within 30 seconds to confirm."
+    )
+    try:
+        await bot.wait_for("message", check=check, timeout=30.0)
+    except asyncio.TimeoutError:
+        return await ctx.send("❌ **Aborted:** Confirmation timed out.")
+ 
+    banned, failed = [], []
+    status_msg = await ctx.send(f"🔨 Banning in progress... (0/{len(safe_matches)})")
+    for i, member in enumerate(safe_matches, start=1):
+        try:
+            await member.ban(reason=f"Bulk ban: account created {TARGET_DATE} (?banall by {ctx.author})")
+            banned.append(member)
+        except Exception as e:
+            failed.append((member, str(e)))
+        if i % 5 == 0 or i == len(safe_matches):
+            try:
+                await status_msg.edit(content=f"🔨 Banning in progress... ({i}/{len(safe_matches)})")
+            except Exception:
+                pass
+        await asyncio.sleep(0.7)  # rate limit protection
+ 
+    result_lines = [f"✅ **{len(banned)}** accounts banned."]
+    if failed:
+        result_lines.append(f"❌ **{len(failed)}** accounts failed to ban:")
+        result_lines.extend(f"  • {m.name} (`{m.id}`) — {err}" for m, err in failed[:10])
+        if len(failed) > 10:
+            result_lines.append(f"  …and {len(failed) - 10} more.")
+    if skipped:
+        result_lines.append(f"⏭️ {skipped} accounts skipped (owner/role safety).")
+ 
+    embed = discord.Embed(
+        title=f"🔨 Bulk Ban Complete — {TARGET_DATE}",
+        description="\n".join(result_lines),
+        color=discord.Color.red()
+    )
+    await status_msg.edit(content=None, embed=embed)
+
 
 # ==========================================
 # Stats: now font/color/background customizable, wide alias coverage
