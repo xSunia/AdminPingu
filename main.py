@@ -1,3 +1,5 @@
+#This bot is not fucking ai coded i builded the project myself i used ai for some suggestions and the  long strings
+# cause i dont know how to make good looking texts i hope you understond me 👍
 import discord
 from discord.ext import commands, tasks
 from discord.ui import Select, View, Modal, TextInput
@@ -19,6 +21,7 @@ import io
 import base64
 import sys
 import ctypes
+import subprocess
 import logging
 from logging.handlers import RotatingFileHandler
 from unidecode import unidecode
@@ -29,39 +32,27 @@ from google import genai
 from google.genai import types
 
 # =====================================================================
-# Reliability / logging hardening
+# Logging / Reliability fix cuz the bot kept straight-up dying 
 # =====================================================================
-# WHY THIS BLOCK EXISTS:
-# The bot would sometimes go offline with absolutely nothing useful in
-# the logs to explain why. That symptom almost always comes from a mix
-# of these root causes, all fixed below:
+# WHY THIS IS HERE:
+# Bot used to ghost us w zero trace in logs. classic skill issue caused 
+# by these 4 things, all patched below:
 #
-#   1) stdout was block-buffered. When the process is killed abruptly
-#      (crash, out-of-memory kill, host restart, etc.) whatever was
-#      still sitting in the stdout buffer and had not been flushed yet
-#      is lost forever — so the very last (and most informative) lines
-#      right before the crash never reach the log viewer.
-#   2) Nothing ever called logging.basicConfig()/attached a handler,
-#      so any message that discord.py itself logs internally through
-#      Python's `logging` module (session resumes, gateway closes,
-#      rate limits, etc.) had nowhere reliable to go.
-#   3) The 5 background @tasks.loop jobs had no .error() handler, so a
-#      single unhandled exception inside one of them permanently killed
-#      that loop (it does not auto-restart) with only a stderr
-#      traceback as a trace — easy to miss and easy to lose to #1.
-#   4) There was no top-level try/except around bot.run(), no asyncio
-#      loop exception handler, and no thread exception hook, so a
-#      handful of failure classes (bad token, unhandled task exception,
-#      exception inside the Flask keep-alive thread) could end the
-#      process without a clear final message.
+#   1) stdout was block-buffered. when the proc gets OOM-killed or crashes, 
+#      anything chillin in the buffer is gone forever. RIP final logs.
+#   2) logging.basicConfig() was missing. discord.py's internal logs 
+#      (rate limits, gateway drops, etc.) had nowhere to go, total void.
+#   3) background @tasks.loop jobs had no .error() handlers. one tiny exception 
+#      and the loop dead-ass dies forever w/ just a stderr traceback.
+#   4) no top-level try/except around bot.run(), no loop exception hook, 
+#      no thread hook. bad tokens or flask thread crashes just killed 
+#      the whole app silently.
 #
-# None of this changes bot behaviour/features — it only guarantees that
-# whenever the bot stops or a background job dies, the reason is always
-# written somewhere you can actually find it.
+# none of this changes bot logic/features — just makes sure that when 
+# shit breaks, we actually know why instead of guessing.
 
-# Force line-buffered stdout/stderr so every print()/log line is
-# flushed to the underlying stream immediately instead of sitting in a
-# buffer that can be lost if the process dies unexpectedly.
+# Force unbuffered stdout/stderr so print()/logs get flushed instantly 
+# instead of getting vaporized if the process crashes unexpectedly fr.
 try:
     sys.stdout.reconfigure(line_buffering=True)
     sys.stderr.reconfigure(line_buffering=True)
@@ -94,8 +85,8 @@ try:
     file_handler.setFormatter(LOG_FORMAT)
     logger.addHandler(file_handler)
 except Exception as log_setup_error:
-    # If we can't even create the log file (e.g. read-only filesystem),
-    # fall back to console-only logging instead of crashing on startup.
+   # if log file cant even be created (like read-only fs n shit), 
+   #dont crash and burn on startup, just fallback to console logging bruh
     print(f"Could not create log file handler: {log_setup_error}", flush=True)
 
 # Make discord.py's own internal logger ("discord", "discord.gateway",
@@ -119,7 +110,7 @@ def handle_uncaught_exception(exc_type, exc_value, exc_traceback):
     file before the process actually dies.
     """
     if issubclass(exc_type, KeyboardInterrupt):
-        # Let Ctrl+C behave normally instead of logging it as an error.
+    
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
         return
     logger.critical(
@@ -193,14 +184,14 @@ MEDIA_ROLE_ID = 1521875919864856714
 ACTIVE_EVENT_CHANNEL_ID = None
 
 # Channels where users are free to post media/GIF links with no restrictions
-# (exempt from the identical-message spam filter below).
+# exempt from the identical-message spam filter below.
 UNRESTRICTED_MEDIA_CHANNEL_IDS = [
     1510347156358168697,
     1521943152490189012,
 ]
 
-# Channels where EVERYONE may post media (not just Level 10+ / media role),
-# with a 3-second cooldown. The usual spam/profanity filters still apply.
+# Channels where EVERYONE may post media not just Level 10+ / media role
+
 MEDIA_CHANNEL_IDS = [
     1510346595298709646,
     1528490372240510996,
@@ -429,21 +420,19 @@ LAST_NEWS_URL = ""
 last_activity_time = time.time()
 
 # ==========================================
-# Leveling math
+# Leveling math 
 # ==========================================
-# XP curve design (per admin request, redesigned to make leveling much more
-# achievable overall):
-#   - Levels 1-10: dead simple linear curve, level N costs exactly N*100 XP
-#     to reach from the previous level (100, 200, 300 ... 1000). This band
-#     is meant to take roughly ~30 minutes of normal chatting.
-#   - Levels 10-20: "light-medium" difficulty, first gentle step up.
-#   - Levels 20-30: "medium" difficulty.
-#   - Levels 30-50: still "medium" difficulty, just a longer stretch of it.
-#   - Levels 50-75: "somewhat hard" - starts to require real grinding.
-#   - Levels 75-90: "a bit harder" than the 50-75 band.
-#   - Levels 90-100: "genuinely hard" - the steepest, final stretch.
-#   - Levels 100+: keeps escalating at the same rate as the 90-100 band, in
-#     case the level cap is ever raised.
+# xp curve got reworked cuz peopol started crying it was too hard:
+#   - lvl 1-10: brain-dead linear curve each lvl costs L*100 xp 
+#     (100, 200, 300 ... 1000). takes like 30 mins of brainrot chatting.
+#   - lvl 10-20: light-medium, first baby step up.
+#   - lvl 20-30: medium difficulty.
+#   - lvl 30-50: still medium, just a painfully long stretch of it.
+#   - lvl 50-75: kinda hard, time to actually touch some grass and grind.
+#   - lvl 75-90: a bit more cooked than the 50-75 band.
+#   - lvl 90-100: genuinely down-bad hard, final boss stretch.
+#   - lvl 100+: keeps scaling like the 90-100 mental asylum tier just in case 
+#     some no-lifers actually raise the level cap later.
 def _geometric_interp(level, low_level, low_value, high_level, high_value):
     """Smoothly grows from low_value to high_value as level goes low_level -> high_level."""
     t = (level - low_level) / (high_level - low_level)
@@ -452,7 +441,7 @@ def _geometric_interp(level, low_level, low_value, high_level, high_value):
 def _xp_delta_for_level(level):
     """Returns how much XP is needed to go from (level) to (level + 1)."""
     if level <= 10:
-        # Levels 1-10: exactly level * 100 (1->2 is 100, 2->3 is 200 ... 10->11 is 1000).
+        # Levels 1-10: exactly level * 100 1->2 is 100  2->3 is 200 ... 10->11 is 1000
         value = level * 100
     elif level <= 20:
         # Light-medium: 10 -> 20.
@@ -1589,23 +1578,29 @@ async def apply_warning(member, reason, guild):
 # ==========================================
 # Terminal sandbox: allow-list and safety checks
 # ==========================================
-# Curated list of ~50 standard-library modules considered harmless in a
-# text-only, no-filesystem, no-network sandbox. Anything not on this list
-# is rejected by check_code_safety().
+# The terminal lets people run small python snippets in Discord. That's a
+# whole-ass security surface, so this sandbox got a glow-up:
+#   - code runs in a SEPARATE disposable process (never in the bot's memory),
+#   - imports are allow-listed, dangerous stdlib leaks get scrubbed,
+#   - timeouts are enforced by killing the process, not by thread tricks,
+#   - everything below is defense in depth: static AST filter first, then a
+#     fresh interpreter with restricted builtins that re-checks itself.
+# Curated list of standard-library modules that are (mostly) harmless in a
+# text-only, no-filesystem, no-network sandbox. Anything not on this list is
+# rejected by check_code_safety(). Modules that leak `os` / `sys` / `threading`
+# / etc. at top level or in submodules (queue, email, xml, uuid, secrets,
+# gettext, locale, argparse, dataclasses, traceback, timeit, plistlib, ...)
+# are intentionally NOT here. The child process also scrubs those leaked
+# module attributes at runtime as a second layer (see _BLOCKED_LEAK_MODULES).
 ALLOWED_TERMINAL_MODULES = {
     "random", "time", "math", "datetime", "string", "re", "itertools",
     "functools", "collections", "statistics", "json", "textwrap", "calendar",
     "decimal", "fractions", "cmath", "bisect", "heapq", "copy", "enum",
-    "typing", "dataclasses", "operator", "unicodedata", "difflib", "pprint",
-    "secrets", "uuid", "base64", "array", "keyword", "numbers", "colorsys",
-    "gettext", "locale", "timeit", "types", "warnings", "weakref", "abc",
-    "contextlib", "reprlib", "graphlib", "zoneinfo", "ipaddress", "html",
-    "csv", "queue", "hashlib", "struct", "ast", "io", "zlib", "binascii",
-    "codecs", "hmac", "traceback", "email", "xml", "argparse", "getopt",
-    "tokenize", "token", "symbol", "stringprep", "mimetypes", "plistlib",
-    "sndhdr", "wave", "audioop", "binhex", "turtle", "tkinter", "traceback",
-    "colorsys", "unicodedata", "textwrap", "difflib", "pprint", "reprlib",
-    "enum", "typing", "dataclasses", "contextlib", "functools", "itertools"
+    "typing", "operator", "unicodedata", "difflib", "pprint", "array",
+    "keyword", "numbers", "colorsys", "types", "warnings", "weakref", "abc",
+    "contextlib", "graphlib", "zoneinfo", "ipaddress", "html", "csv",
+    "hashlib", "struct", "ast", "io", "zlib", "binascii", "base64", "hmac",
+    "token", "tokenize", "stringprep",
 }
 
 TERMINAL_STATE = {}
@@ -1620,8 +1615,18 @@ BLOCKED_SAFE_NAMES = [
 ]
 
 # Attribute calls that can reach outside the sandbox (subprocess / os.system
-# style escapes). Attribute name "open" covers io.open(), codecs.open(), etc.
-BLOCKED_SAFE_ATTRS = ["system", "popen", "spawn", "run", "open"]
+# style escapes). "open" covers io.open()/codecs.open()/plain open(), FileIO
+# is the other stdlib way to open files, and the os.* / os.path style names
+# are dead weight since `os` itself can never be imported. getattr/setattr/
+# delattr/vars are handled via BLOCKED_SAFE_NAMES (they smuggle dunders).
+BLOCKED_SAFE_ATTRS = [
+    "system", "popen", "spawn", "run", "open", "Popen", "call",
+    "check_call", "check_output", "getoutput", "getstatusoutput",
+    "startfile", "execv", "execve", "execvp", "posix_spawn", "fork",
+    "dlopen", "LoadLibrary", "shell", "FileIO", "environ", "getenv",
+    "remove", "unlink", "rename", "mkdir", "rmdir", "chmod", "chown",
+    "symlink", "link", "listdir", "scandir", "walk",
+]
 
 
 def check_code_safety(code):
@@ -1660,53 +1665,218 @@ def check_code_safety(code):
             elif isinstance(node.func, ast.Attribute):
                 if node.func.attr in BLOCKED_SAFE_ATTRS:
                     return False, f"Security Error: The attribute `{node.func.attr}` is blocked."
+                # .format() is blocked because the old dunder-escape chain
+                # (`"{0.__class__.__bases__[0]}".format(...)`) hid dunder
+                # lookups from the AST walker — plain attribute access.
+                # f-strings still work fine, so this costs nothing real.
+                if node.func.attr in ("format", "format_map"):
+                    return False, "Security Error: str.format() / format_map() are blocked in the sandbox."
     return True, ""
-
-def _make_safe_import(allowed_modules):
-    def safe_import(name, globals=None, locals=None, fromlist=(), level=0):
-        root_module = name.split(".")[0]
-        if root_module not in allowed_modules:
-            raise ImportError(f"Module '{name}' is not on the sandbox allow-list.")
-        return __import__(name, globals, locals, fromlist, level)
-    return safe_import
 
 TERMINAL_TIMEOUT = 15.0
 TERMINAL_INPUT_TIMEOUT = 60.0
+MEMORY_LIMIT_MB = 256.0
 
+# User code now runs in a whole separate Python process, not in a bot thread.
+# The old thread watchdog (ctypes SetAsyncExc) could not stop C-level loops,
+# and a stuck thread corrupted bot state. A subprocess can just be killed —
+# an infinite loop, a memory hog or even a native crash can only take out
+# the disposable child, never the bot. Markers on the child's stderr tell
+# the bot that input() is blocking (prompt) and that a line was consumed.
+_SANDBOX_INPUT_MARK = "\x00INPUT\x00"
+_SANDBOX_OK_MARK = "\x00OK\x00"
 
-def _async_raise(thread, exc_type):
-    """Inject an exception into a running thread (used by the watchdog)."""
-    if not thread.is_alive():
+# Module roots scrubbed out of any imported module in the child. Some stdlib
+# modules (binhex.os, uuid.os, contextlib.os, argparse._os, queue.threading,
+# enum.sys, ...) leak a handle to os/sys/subprocess as a plain attribute, and
+# `module.os.system(...)` would skip right past the AST checks. The child
+# sets every attribute pointing at one of these to None after importing.
+_BLOCKED_LEAK_MODULES = frozenset({
+    "os", "sys", "subprocess", "shutil", "ctypes", "importlib", "pathlib",
+    "socket", "tempfile", "threading", "multiprocessing", "pickle", "marshal",
+    "inspect", "platform", "getpass", "signal", "resource", "mmap", "zipfile",
+    "tarfile", "gzip", "bz2", "lzma", "shlex", "urllib", "http", "ftplib",
+    "smtplib", "poplib", "imaplib", "nntplib", "readline", "pdb", "bdb",
+    "code", "codeop", "site", "builtins", "winreg", "msvcrt", "winsound",
+    "posix", "pwd", "grp", "spwd", "crypt", "tty", "termios", "fcntl",
+    "select", "tracemalloc", "pkgutil",
+})
+
+# The child process bootstrap. User code and config travel through environment
+# variables (never the command line), so no quoting weirdness and nothing
+# user-controlled can hit the shell. The child re-checks the allow-list
+# itself, scrubs leaked modules, applies the memory cap where the OS allows,
+# enforces its own compute cap (best effort — the parent kill is the real
+# backstop), and proxies print()/input() over pipes.
+_CHILD_HARNESS = r'''
+import base64
+import ctypes
+import io
+import os as _os
+import sys as _sys
+import threading as _threading
+import traceback as _traceback
+
+CODE = base64.b64decode(_os.environ["AP_SANDBOX_CODE_B64"]).decode("utf-8", "replace")
+ALLOWED = frozenset(eval(_os.environ["AP_SANDBOX_ALLOWED"]))
+COMPUTE_TIMEOUT = float(_os.environ["AP_SANDBOX_TIMEOUT"])
+MEMORY_LIMIT_MB = float(_os.environ["AP_SANDBOX_MEMORY_MB"])
+
+try:
+    import resource as _resource
+    _cap = int(MEMORY_LIMIT_MB * 1024 * 1024)
+    _resource.setrlimit(_resource.RLIMIT_AS, (_cap, _cap))
+except Exception:
+    pass
+
+BLOCKED_ROOTS = frozenset(_os.environ["AP_SANDBOX_BLOCKED"].split(","))
+
+def _scrub_module(mod):
+    if mod is None:
         return
-    tid = ctypes.c_long(thread.ident)
-    result = ctypes.pythonapi.PyThreadState_SetAsyncExc(tid, ctypes.py_object(exc_type))
-    if result == 0:
-        ctypes.pythonapi.PyThreadState_SetAsyncExc(tid, ctypes.py_object(exc_type))
-    elif result > 1:
-        ctypes.pythonapi.PyThreadState_SetAsyncExc(tid, ctypes.c_long(0))
+    try:
+        items = list(mod.__dict__.items())
+    except Exception:
+        return
+    for name, val in items:
+        if isinstance(val, type(_sys)):
+            root = (getattr(val, "__name__", "") or "").split(".")[0]
+            if root in BLOCKED_ROOTS:
+                try:
+                    mod.__dict__[name] = None
+                except Exception:
+                    pass
 
+def _scrub_tree(mod):
+    seen = set()
+    stack = [mod]
+    while stack:
+        cur = stack.pop()
+        if id(cur) in seen:
+            continue
+        seen.add(id(cur))
+        _scrub_module(cur)
+        for name, val in list(cur.__dict__.items()):
+            if isinstance(val, type(_sys)):
+                stack.append(val)
 
-class _RunWatchdog:
-    """Raises TimeoutError inside the worker thread after `limit` seconds."""
+def _safe_import(name, globals=None, locals=None, fromlist=(), level=0):
+    root = name.split(".")[0]
+    if root not in ALLOWED:
+        raise ImportError(f"Module '{name}' is not on the sandbox allow-list.")
+    mod = __import__(name, globals, locals, fromlist, level)
+    _scrub_tree(mod)
+    return mod
 
-    def __init__(self, target, limit):
-        self._target = target
+_OUT = io.StringIO()
+
+code_text = CODE
+_input_lines = []
+if "---INPUT---" in code_text:
+    code_text, _, _input_block = code_text.partition("---INPUT---")
+    _input_lines = [ln for ln in _input_block.strip().splitlines()]
+_input_iter = iter(_input_lines)
+
+def _sand_print(*args, sep=" ", end="\n", file=None):
+    text = sep.join(str(a) for a in args) + end
+    if file is None:
+        _OUT.write(text)
+    else:
+        try:
+            file.write(text)
+        except Exception:
+            _OUT.write(text)
+
+def _raise_in_main(exc_type):
+    tid = _threading.main_thread().ident
+    if tid is None:
+        return
+    res = ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(tid), ctypes.py_object(exc_type))
+    if res > 1:
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(tid), ctypes.c_long(0))
+
+class _ComputeWatchdog:
+    def __init__(self, limit):
         self._limit = limit
         self._timer = None
 
     def arm(self):
         self.cancel()
-        self._timer = threading.Timer(self._limit, self._fire)
+        self._timer = _threading.Timer(self._limit, _raise_in_main, args=(TimeoutError,))
         self._timer.daemon = True
         self._timer.start()
-
-    def _fire(self):
-        _async_raise(self._target, TimeoutError)
 
     def cancel(self):
         if self._timer is not None:
             self._timer.cancel()
             self._timer = None
+
+_watchdog = _ComputeWatchdog(COMPUTE_TIMEOUT)
+
+def _sand_input(prompt=""):
+    if prompt:
+        _OUT.write(str(prompt))
+    try:
+        return next(_input_iter)
+    except StopIteration:
+        pass
+    _watchdog.cancel()
+    try:
+        print("\x00INPUT\x00" + str(prompt), file=_sys.stderr, flush=True)
+    except Exception:
+        pass
+    try:
+        line = _sys.stdin.readline()
+    except Exception:
+        line = ""
+    try:
+        print("\x00OK\x00", file=_sys.stderr, flush=True)
+    except Exception:
+        pass
+    _watchdog.arm()
+    return line.rstrip("\r\n")
+
+_safe_builtins = {
+    "print": _sand_print, "input": _sand_input, "range": range, "len": len,
+    "int": int, "float": float, "str": str, "bool": bool, "list": list,
+    "dict": dict, "set": set, "tuple": tuple, "sum": sum, "min": min,
+    "max": max, "abs": abs, "round": round, "type": type,
+    "Exception": Exception, "ValueError": ValueError, "TypeError": TypeError,
+    "IndexError": IndexError, "KeyError": KeyError, "ZeroDivisionError": ZeroDivisionError,
+    "StopIteration": StopIteration, "enumerate": enumerate, "zip": zip,
+    "map": map, "filter": filter, "all": all, "any": any, "sorted": sorted,
+    "reversed": reversed, "isinstance": isinstance, "issubclass": issubclass,
+    "chr": chr, "ord": ord, "hex": hex, "oct": oct, "bin": bin, "pow": pow,
+    "divmod": divmod, "frozenset": frozenset, "iter": iter, "next": next,
+    "__import__": _safe_import,
+}
+_env = {"__builtins__": _safe_builtins}
+
+_watchdog.arm()
+try:
+    exec(code_text, _env, _env)
+except TimeoutError:
+    _OUT.write("Timeout Error: Code execution took too long (%d second limit, infinite loop?).\n" % int(COMPUTE_TIMEOUT))
+except MemoryError:
+    _OUT.write("Memory Error: Code tried to use too much memory.\n")
+except Exception as e:
+    _OUT.write("".join(_traceback.format_exception_only(type(e), e)).strip() + "\n")
+finally:
+    _watchdog.cancel()
+
+_sys.stdout.write(_OUT.getvalue())
+_sys.stdout.flush()
+'''
+
+
+def _build_child_environment(code):
+    env = dict(os.environ)
+    env["AP_SANDBOX_CODE_B64"] = base64.b64encode(code.encode("utf-8")).decode("ascii")
+    env["AP_SANDBOX_ALLOWED"] = repr(sorted(ALLOWED_TERMINAL_MODULES))
+    env["AP_SANDBOX_TIMEOUT"] = repr(TERMINAL_TIMEOUT)
+    env["AP_SANDBOX_MEMORY_MB"] = repr(MEMORY_LIMIT_MB)
+    env["AP_SANDBOX_BLOCKED"] = ",".join(sorted(_BLOCKED_LEAK_MODULES))
+    return env
 
 
 async def _send_terminal_prompt(channel_id, prompt):
@@ -1731,105 +1901,175 @@ async def _send_terminal_note(channel_id, text):
 
 
 def execute_sandbox_sync(code, channel_id=None, loop=None):
-    """Runs user code in an isolated namespace with a restricted builtin set.
+    """Runs user code in a fresh, disposable Python subprocess.
 
-    Compute is hard-capped at TERMINAL_TIMEOUT seconds via an in-thread
-    watchdog. input() without a static ---INPUT--- feed waits up to
-    TERMINAL_INPUT_TIMEOUT seconds for the user to reply in Discord.
+    A subprocess — not a thread — is the real sandbox boundary. User code
+    never executes inside the bot, so an infinite loop, memory blow-up or
+    native crash can only kill the child. The parent streams the child's
+    stdout/stderr back, feeds input() through the stdin pipe, and kills the
+    child once the total budget (compute + input wait + margin) runs out.
     """
-    # Support a static input() feed: anything after a line containing only
-    # "---INPUT---" is treated as pre-supplied input, one value per line.
-    input_lines = []
+    check_code = code
     if "---INPUT---" in code:
-        code, _, input_block = code.partition("---INPUT---")
-        input_lines = [ln for ln in input_block.strip().splitlines()]
-    input_iter = iter(input_lines)
-
-    safe, msg = check_code_safety(code)
+        check_code, _, _ = code.partition("---INPUT---")
+    safe, msg = check_code_safety(check_code)
     if not safe:
         return msg
 
     state = TERMINAL_STATE.get(channel_id) if channel_id else None
-    watchdog = _RunWatchdog(threading.current_thread(), TERMINAL_TIMEOUT)
+    if state is None:
+        state = {"waiting": threading.Event(), "values": [], "need_input": False}
+        if channel_id:
+            TERMINAL_STATE[channel_id] = state
+    state["waiting"].clear()
+    state["values"].clear()
+    state["need_input"] = False
 
-    output_buffer = io.StringIO()
+    try:
+        child = subprocess.Popen(
+            [sys.executable, "-u", "-c", _CHILD_HARNESS],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=_build_child_environment(code),
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except Exception as e:
+        return f"Sandbox Error: could not start worker process ({e})"
 
-    def custom_print(*args, sep=' ', end='\n', file=None):
-        if file is None:
-            output_buffer.write(sep.join(map(str, args)) + end)
-        else:
-            file.write(sep.join(map(str, args)) + end)
+    out_lines = []
+    err_lines = []
 
-    def custom_input(prompt=''):
-        if prompt:
-            output_buffer.write(str(prompt))
+    def _stdout_reader():
+        while True:
+            line = child.stdout.readline()
+            if line == "":
+                break
+            out_lines.append(line)
+
+    def _stderr_reader():
+        while True:
+            line = child.stderr.readline()
+            if line == "":
+                break
+            if line.startswith(_SANDBOX_INPUT_MARK):
+                prompt = line[len(_SANDBOX_INPUT_MARK):].rstrip("\r\n")
+                state["need_input"] = True
+                if loop is not None:
+                    try:
+                        asyncio.run_coroutine_threadsafe(
+                            _send_terminal_prompt(channel_id, prompt), loop).result(timeout=5)
+                    except Exception:
+                        pass
+            elif line.startswith(_SANDBOX_OK_MARK):
+                state["need_input"] = False
+            else:
+                err_lines.append(line)
+
+    readers = [
+        threading.Thread(target=_stdout_reader, daemon=True),
+        threading.Thread(target=_stderr_reader, daemon=True),
+    ]
+    for t in readers:
+        t.start()
+
+    total_deadline = time.monotonic() + TERMINAL_TIMEOUT + TERMINAL_INPUT_TIMEOUT + 10.0
+    input_deadline = None
+    timed_out = False
+    try:
+        while True:
+            if child.poll() is not None:
+                break
+            if time.monotonic() >= total_deadline:
+                timed_out = True
+                break
+            if state["need_input"]:
+                # Input sent before the child signalled input() must not get
+                # stranded — drain it immediately, no waiting involved.
+                if state["values"]:
+                    while state["values"]:
+                        value = state["values"].pop(0)
+                        try:
+                            child.stdin.write(value + "\n")
+                            child.stdin.flush()
+                        except Exception:
+                            break
+                    input_deadline = None
+                    continue
+                if input_deadline is None:
+                    input_deadline = time.monotonic() + TERMINAL_INPUT_TIMEOUT
+                remaining = min(total_deadline, input_deadline) - time.monotonic()
+                if remaining <= 0:
+                    timed_out = True
+                    break
+                got = state["waiting"].wait(remaining)
+                state["waiting"].clear()
+                if got:
+                    while state["values"]:
+                        value = state["values"].pop(0)
+                        try:
+                            child.stdin.write(value + "\n")
+                            child.stdin.flush()
+                        except Exception:
+                            break
+                    input_deadline = None
+            else:
+                state["waiting"].wait(0.3)
+                state["waiting"].clear()
+    finally:
         try:
-            return next(input_iter)
-        except StopIteration:
+            child.stdin.close()
+        except Exception:
             pass
-
-        if state is None:
-            return ""
-
-        # Live mode: pause the compute watchdog, then wait up to 60s for the
-        # next Discord message in this channel.
-        watchdog.cancel()
-        state["waiting"].clear()
-        state["need_input"] = True
-        if loop is not None:
+        if child.poll() is None:
             try:
-                asyncio.run_coroutine_threadsafe(
-                    _send_terminal_prompt(channel_id, prompt), loop).result(timeout=5)
+                child.kill()
             except Exception:
                 pass
-        got = state["waiting"].wait(TERMINAL_INPUT_TIMEOUT)
-        state["need_input"] = False
-        watchdog.arm()
-        if not got:
-            if loop is not None:
-                try:
-                    asyncio.run_coroutine_threadsafe(
-                        _send_terminal_note(channel_id, "⏰ No input received within 60 seconds."), loop).result(timeout=5)
-                except Exception:
-                    pass
-            return ""
-        return state["values"].pop(0) if state["values"] else ""
+            child.wait()
 
-    safe_builtins = {
-        'print': custom_print, 'input': custom_input, 'range': range, 'len': len,
-        'int': int, 'float': float, 'str': str, 'bool': bool, 'list': list,
-        'dict': dict, 'set': set, 'tuple': tuple, 'sum': sum, 'min': min,
-        'max': max, 'abs': abs, 'round': round, 'type': type,
-        'Exception': Exception, 'ValueError': ValueError, 'TypeError': TypeError,
-        'IndexError': IndexError, 'KeyError': KeyError, 'ZeroDivisionError': ZeroDivisionError,
-        'StopIteration': StopIteration, 'enumerate': enumerate, 'zip': zip,
-        'map': map, 'filter': filter, 'all': all, 'any': any, 'sorted': sorted,
-        'reversed': reversed, 'isinstance': isinstance, 'issubclass': issubclass,
-        'chr': chr, 'ord': ord, 'hex': hex, 'oct': oct, 'bin': bin, 'pow': pow,
-        'divmod': divmod, 'frozenset': frozenset, 'iter': iter, 'next': next,
-        '__import__': _make_safe_import(ALLOWED_TERMINAL_MODULES)
-    }
-    safe_env = {'__builtins__': safe_builtins}
+    for t in readers:
+        t.join(timeout=2.0)
 
-    watchdog.arm()
-    try:
-        exec(code, safe_env, safe_env)
-    except Exception as e:
-        if isinstance(e, TimeoutError):
-            output_buffer.write("Timeout Error: Code execution took too long (15 second limit, infinite loop?).\n")
+    stdout = "".join(out_lines)
+    stderr = "".join(err_lines)
+
+    if timed_out:
+        if loop is not None and state["need_input"]:
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    _send_terminal_note(channel_id, "⏰ No input received within 60 seconds."), loop).result(timeout=5)
+            except Exception:
+                pass
+        note = "Timeout Error: Code execution took too long and was killed by the sandbox (infinite loop or input() timeout).\n"
+        if not stdout:
+            stdout = note
+        elif not stdout.endswith("\n"):
+            stdout += "\n" + note
         else:
-            output_buffer.write("".join(traceback.format_exception_only(type(e), e)).strip() + "\n")
-    finally:
-        watchdog.cancel()
+            stdout += note
+    elif child.returncode != 0:
+        if stderr:
+            stdout += f"\n[Sandbox process crashed with exit code {child.returncode}]\n{stderr}"
+        else:
+            stdout += f"\n[Sandbox process crashed with exit code {child.returncode}]"
 
-    return output_buffer.getvalue()
+    state["values"].clear()
+    state["waiting"].clear()
+    state["need_input"] = False
+    return stdout
+
 
 async def execute_sandbox(code, channel_id=None):
-    """Runs the sandbox on a worker thread. 15s compute cap, 60s input wait."""
+    """Runs the sandbox on a worker thread. The child process is hard-killed
+    once the total budget (compute + input wait + margin) is exhausted."""
     loop = asyncio.get_running_loop()
     try:
         future = loop.run_in_executor(None, execute_sandbox_sync, code, channel_id, loop)
-        output = await asyncio.wait_for(future, timeout=TERMINAL_INPUT_TIMEOUT + TERMINAL_TIMEOUT + 5.0)
+        output = await asyncio.wait_for(future, timeout=TERMINAL_INPUT_TIMEOUT + TERMINAL_TIMEOUT + 15.0)
         return output
     except asyncio.TimeoutError:
         return "Timeout Error: Code execution took too long (infinite loop?)."
@@ -1847,9 +2087,14 @@ TERMINAL_HELP_TEXT = (
     "filter, all, any, sorted, reversed, isinstance, issubclass, chr, ord,\n"
     "hex, oct, bin, pow, divmod, frozenset, iter, next, plus common exceptions.\n\n"
     "Blocked: open, eval, exec, compile, __import__ (raw), globals, locals,\n"
-    "getattr, setattr, delattr, vars, breakpoint, os.system/popen/spawn/run,\n"
-    "io.open/codecs.open, ALL __dunder__ attribute access (__class__,\n"
-    "__subclasses__, __globals__ ...), and any module not in the list above.\n\n"
+    "getattr, setattr, delattr, vars, breakpoint, str.format/format_map,\n"
+    "os.system/popen/spawn/run, io.open/codecs.open/FileIO, ALL __dunder__\n"
+    "attribute access (__class__, __subclasses__, __globals__ ...), and any\n"
+    "module not in the list above.\n\n"
+    "Isolation:\n"
+    "  Your code runs in a separate disposable Python process. Infinite\n"
+    "  loops, memory hogs or crashes can never take the bot down; the\n"
+    "  process is simply killed. No filesystem, no network, no env access.\n\n"
     "Live input() (60 seconds):\n"
     "  The bot now waits live for your reply. When your code calls input(),\n"
     "  it posts a prompt and waits up to 60 seconds for your next message.\n"
@@ -1861,7 +2106,8 @@ TERMINAL_HELP_TEXT = (
     "  Sunia\n\n"
     "Time limits:\n"
     "  Compute (incl. infinite loops / animations) is capped at 15 seconds.\n"
-    "  input() waits up to 60 seconds per call.\n\n"
+    "  input() waits up to 60 seconds per call.\n"
+    "  Memory is capped at 256 MB where the OS supports it.\n\n"
     "Type close() or exit() to delete this terminal.\n"
     "```"
 )
