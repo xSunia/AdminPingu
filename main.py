@@ -889,6 +889,7 @@ class RolesView(View):
             discord.SelectOption(label="openSUSE", value="1521873026776301608", emoji="<:opensuse:1536477479425024070>"),
             discord.SelectOption(label="Slackware", value="1521873129868365964", emoji="<:slcakware:1536477186851344544>"),
             discord.SelectOption(label="Chimera Linux", value="1534519999681658941", emoji="<:chimera:1536484553592541225>"),
+            discord.SelectOption(label="Linux From Scratch", value="1538268578497962065", emoji="<:linuxfromscratch:1538279252749717586>"),
         ]
         bsd_win_opts = [
             discord.SelectOption(label="FreeBSD", value="1521909235594825999", emoji="<:freesbd:1536477374378410064>"),
@@ -914,7 +915,8 @@ class RolesView(View):
                 "**🧬 FreeBSD & Windows Family** — BSD systems + Windows\n"
                 "**🖥️ Graphics** — GPU driver roles\n"
                 "**🖼️ DE / WM** — desktops & window managers in the next message\n"
-                "**🍎 Apple & Android** — Apple & Android roles in the next message"
+                "**🍎 Apple & Android** — Apple & Android roles in the next message\n"
+                "**🖥️ Other Operating Systems** — other OS roles in the next message"
             ),
             color=discord.Color.dark_theme(),
         )
@@ -963,12 +965,19 @@ class DewmView(View):
             discord.SelectOption(label="MacOS", value="1538125249315479593", emoji="<:mac:1538125227794370590>"),
             discord.SelectOption(label="iOS", value="1538125362452496425", emoji="<:ios:1538125201236295754>"),
         ]
+        otheros_opts = [
+            discord.SelectOption(label="Temple OS", value="1538277203564044348", emoji="<:templeos:1538279317971402854>"),
+            discord.SelectOption(label="Haiku", value="1538277859263520949", emoji="<:haiku:1538279349453594624>"),
+            discord.SelectOption(label="IllumOS", value="1538277539640905849", emoji="<:illumos:1538279369259352266>"),
+        ]
         self.embed = discord.Embed(
             title="🖼️ Desktop Environment / Window Manager & Apple / Android",
             description=(
                 "**🖼️ DE / WM** — Pick any number of **DE / WM**s below, "
                 "no limit — you can hold multiple at once.\n\n"
                 "**🍎 Apple & Android** — Pick your **Apple & Android** platform "
+                "below. You can hold multiple selections at once.\n\n"
+                "**🖥️ Other Operating Systems** — Pick your **other OS** roles "
                 "below. You can hold multiple selections at once."
             ),
             color=discord.Color.dark_theme(),
@@ -982,6 +991,11 @@ class DewmView(View):
             placeholder="🍎 2. Select Apple & Android roles",
             options=apple_android_opts,
             custom_id="roles_apple_android",
+        ))
+        self.add_item(DistroSelect(
+            placeholder="🖥️ 3. Select Other Operating Systems",
+            options=otheros_opts,
+            custom_id="roles_otheros",
         ))
 
 # ==========================================
@@ -4139,6 +4153,110 @@ async def neofetch(ctx):
         "    }xYLQ0QCXn|-!"
     ]
 
+    TEMPLEOS_ASCII = [
+        r"@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@",
+        r"@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@",
+        r"@@@                                     @@@",
+        r"@@@                           ++        @@@",
+        r"@@@                          ++         @@@",
+        r"@@@                         ++          @@@",
+        r"@@@                  =    +++           @@@",
+        r"@@@             ==========+             @@@",
+        r"@@@                     ++              @@@",
+        r"@@@                    ++               @@@",
+        r"@@@                   ++                @@@",
+        r"@@@                  ++                 @@@",
+        r"@@@          ==    +++      ==          @@@",
+        r"@@@               +++                   @@@",
+        r"@@@              +++                    @@@",
+        r"@@@             +++                     @@@",
+        r"@@@          = +++                      @@@",
+        r"@@@          =+++                       @@@",
+        r"@@@          ++                         @@@",
+        r"@@@         ++                          @@@",
+        r"@@@                                     @@@",
+        r"@@@                                     @@@",
+        r"@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@",
+    ]
+
+    ILLUMOS_ASCII = [
+        r"                                           ",
+        r"  ==                                       ",
+        r" =+++++=                                   ",
+        r"   +++++#                                  ",
+        r"    =++++##                                ",
+        r"      ==++=##                              ",
+        r"       ==++=####                           ",
+        r"         =====####                         ",
+        r"           =====######           #######   ",
+        r"            #======######     ######       ",
+        r"               ======#############         ",
+        r"                 #======##########         ",
+        r"                   ###===########=         ",
+        r"                      ##########==         ",
+        r"                       ########==          ",
+        r"                        #######=           ",
+        r"                        ######             ",
+        r"                      ######               ",
+        r"                   ######                  ",
+        r"                #######                    ",
+        r"                   ##                      ",
+        r"                 ##                        ",
+        r"               #                           ",
+    ]
+
+    HAIKU_ASCII = [
+        r"                                           ",
+        r"                                           ",
+        r"                                           ",
+        r"                                           ",
+        r"             ####             ###          ",
+        r"             ####             ###          ",
+        r"             ####             ###          ",
+        r"             ####             ###          ",
+        r"             ####             ###==        ",
+        r"             ####        =============     ",
+        r"             ####    ================      ",
+        r"             ####==================        ",
+        r"  =======   ======================         ",
+        r"    ============================#          ",
+        r"             =================###          ",
+        r"             ####==========   ###          ",
+        r"             ####             ###          ",
+        r"             ####             ###          ",
+        r"             ####             ###          ",
+        r"                                           ",
+        r"                                           ",
+        r"                                           ",
+        r"                                           ",
+    ]
+
+    LINUXFROMSCRATCH_ASCII = [
+        r"                                           ",
+        r"                                           ",
+        r"               .+====+:                    ",
+        r"               =#######+.                  ",
+        r"              .=========:.      .:         ",
+        r"       +=+:..  :===#====:....:+=##=:       ",
+        r"      +####====+=#==###======###==##+.     ",
+        r"     :##=+++===###=#=+:::::==+==###==:.    ",
+        r"     ==:    .+====#+.       +==##===#+..   ",
+        r"    :#= .+:.  =====   :+::   +#=++++++..   ",
+        r"    :=+ ##:+. +#===  :##=+=  .=+::.....    ",
+        r"    +#= =#==: +++++. +#=###. .=:..         ",
+        r"    :##. +=+::.  .....+===:  +#+:...:+     ",
+        r"    .=#=..:........... ...  :#=######:     ",
+        r"     +=+:..............  ....+===#===:..   ",
+        r"     .+.............  ....:. +#===##+::.   ",
+        r"      .:.....::+..........:+:+==#=++::.    ",
+        r"       .::::::::..........::::.::+:::..    ",
+        r"        .................:::..  .....      ",
+        r"                 ..::::::::.               ",
+        r"                   ........                ",
+        r"                                           ",
+        r"                                           ",
+    ]
+
     distro_role_mapping = {
         1521868543799328808: ("Arch Linux", ARCH_ASCII),
         1521870392472502344: ("Manjaro", MANJARO_ASCII),
@@ -4166,7 +4284,8 @@ async def neofetch(ctx):
         1521872759691542588: ("Alpine Linux", ALPINE_ASCII),
         1521873026776301608: ("openSUSE", OPENSUSE_ASCII),
         1521873129868365964: ("Slackware", SLACKWARE_ASCII),
-        1534519999681658941: ("Chimera Linux", CHIMERA_ASCII)
+        1534519999681658941: ("Chimera Linux", CHIMERA_ASCII),
+        1538268578497962065: ("Linux From Scratch", LINUXFROMSCRATCH_ASCII)
     }
 
     win_role_mapping = {
@@ -4192,26 +4311,42 @@ async def neofetch(ctx):
         1538125362452496425: ("iOS", IOS_ASCII),
     }
 
-    # Merge every OS role (distro / windows / bsd / apple) into one map so the
-    # neofetch logo + OS name always reflect the HIGHEST-PRIORITY role, and up
-    # to 3 extra OSes show under "Other OS" for dual/multiboot users.
+    otheros_role_mapping = {
+        1538277203564044348: ("Temple OS", TEMPLEOS_ASCII),
+        1538277859263520949: ("Haiku", HAIKU_ASCII),
+        1538277539640905849: ("IllumOS", ILLUMOS_ASCII),
+    }
+
+    # Merge every OS role (distro / windows / bsd / apple / other) into one map
+    # so the neofetch logo + OS name always reflect the HIGHEST-PRIORITY role,
+    # and up to 3 extra OSes show under "Other OS" for dual/multiboot users.
     os_role_mapping = {}
     os_role_mapping.update(distro_role_mapping)
     os_role_mapping.update(win_role_mapping)
     os_role_mapping.update(bsd_role_mapping)
     os_role_mapping.update(apple_role_mapping)
+    os_role_mapping.update(otheros_role_mapping)
 
-    dewm_role_mapping = {
+    de_role_mapping = {
         1535969909954183239: "KDE Plasma",
         1535970090724495470: "GNOME",
         1535970501740990494: "XFCE",
         1535970676337418240: "Cinnamon",
         1535970708046356552: "MATE",
+    }
+
+    wm_role_mapping = {
         1535970826686431314: "Niri",
         1535971021008543744: "Hyprland",
         1535971133260701716: "i3",
         1535971171260964944: "Sway",
         1535971353801396275: "Mango WM",
+    }
+
+    gpu_role_mapping = {
+        1521879270530486414: "NVIDIA",
+        1521879224951246928: "AMD",
+        1521879315648614410: "Intel",
     }
 
     matched_os = []
@@ -4221,10 +4356,20 @@ async def neofetch(ctx):
         if len(matched_os) >= 4:
             break
 
-    matched_dewm = []
+    matched_de = []
     for role in reversed(ctx.author.roles):
-        if role.id in dewm_role_mapping and role.id not in matched_dewm:
-            matched_dewm.append(dewm_role_mapping[role.id])
+        if role.id in de_role_mapping and role.id not in matched_de:
+            matched_de.append(de_role_mapping[role.id])
+
+    matched_wm = []
+    for role in reversed(ctx.author.roles):
+        if role.id in wm_role_mapping and role.id not in matched_wm:
+            matched_wm.append(wm_role_mapping[role.id])
+
+    matched_gpu = []
+    for role in reversed(ctx.author.roles):
+        if role.id in gpu_role_mapping and role.id not in matched_gpu:
+            matched_gpu.append(gpu_role_mapping[role.id])
 
     if matched_os:
         final_os = matched_os[0][1][0]
@@ -4260,7 +4405,9 @@ async def neofetch(ctx):
         f"OS: {final_os}",
         f"Other OS: {', '.join(other_os)}" if other_os else "Other OS: None",
         f"Host: Linux & Beyond",
-        f"DE/WM: {', '.join(matched_dewm)}" if matched_dewm else "DE/WM: None",
+        f"DE: {', '.join(matched_de)}" if matched_de else "DE: None",
+        f"WM: {', '.join(matched_wm)}" if matched_wm else "WM: None",
+        f"GPU: {', '.join(matched_gpu)}" if matched_gpu else "GPU: None",
         f"Authority: {auth_level}",
         f"Uptime: {uptime_str}",
         f"Roles: {role_count}",
