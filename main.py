@@ -913,7 +913,8 @@ class RolesView(View):
                 "**🐧 Fedora & Independent** — Fedora/RHEL-based + independent distros\n"
                 "**🧬 FreeBSD & Windows Family** — BSD systems + Windows\n"
                 "**🖥️ Graphics** — GPU driver roles\n"
-                "**🖼️ DE / WM** — check the next message for desktops & window managers"
+                "**🖼️ DE / WM** — desktops & window managers in the next message\n"
+                "**🍎 Apple & Android** — Apple & Android roles in the next message"
             ),
             color=discord.Color.dark_theme(),
         )
@@ -957,19 +958,30 @@ class DewmView(View):
             discord.SelectOption(label="Sway", value="1535971171260964944", emoji="<:sway:1536489216140247082>"),
             discord.SelectOption(label="Mango WM", value="1535971353801396275", emoji="<:mangowm:1536489244011270184>"),
         ]
+        apple_android_opts = [
+            discord.SelectOption(label="Android", value="1538125479222181888", emoji="<:android:1538125170835718174>"),
+            discord.SelectOption(label="MacOS", value="1538125249315479593", emoji="<:mac:1538125227794370590>"),
+            discord.SelectOption(label="iOS", value="1538125362452496425", emoji="<:ios:1538125201236295754>"),
+        ]
         self.embed = discord.Embed(
-            title="🖼️ Desktop Environment / Window Manager",
+            title="🖼️ Desktop Environment / Window Manager & Apple / Android",
             description=(
-                "Pick your **DE / WM** below. Only **one** selection is kept at "
-                "a time — choosing a new one automatically removes the previous one."
+                "**🖼️ DE / WM** — Pick any number of **DE / WM**s below, "
+                "no limit — you can hold multiple at once.\n\n"
+                "**🍎 Apple & Android** — Pick your **Apple & Android** platform "
+                "below. You can hold multiple selections at once."
             ),
             color=discord.Color.dark_theme(),
         )
         self.add_item(DistroSelect(
-            placeholder="🖼️ Select your DE / WM",
+            placeholder="🖼️ 1. Select your DE / WM (multi)",
             options=dewm_opts,
             custom_id="roles_dewm",
-            max_values=1,
+        ))
+        self.add_item(DistroSelect(
+            placeholder="🍎 2. Select Apple & Android roles",
+            options=apple_android_opts,
+            custom_id="roles_apple_android",
         ))
 
 # ==========================================
@@ -1445,7 +1457,7 @@ async def on_ready():
             await roles_channel.send(embed=roles_view.embed, view=roles_view)
             dewm_view = DewmView()
             await roles_channel.send(embed=dewm_view.embed, view=dewm_view)
-            print("🎭 Roles menus posted (5 categories + DE/WM second message).")
+            print("🎭 Roles menus posted (5 categories + DE/WM & Apple/Android second message).")
     except Exception as e:
         print(f"Roles menu post error: {e}")
 
@@ -3182,7 +3194,6 @@ async def gif(ctx):
 
 @bot.hybrid_command(name="neofetch", aliases=["nf", "sysinfo", "neo"], description="Shows user and OS information in a neofetch style.")
 async def neofetch(ctx):
-    user_role_ids = [r.id for r in ctx.author.roles]
 
     TUX_ASCII = [
         r"        .--.         ",
@@ -3192,6 +3203,56 @@ async def neofetch(ctx):
         r"     (|     | )      ",
         r"    /'\_   _/`\     ",
         r"    \___)=(___/     ",
+    ]
+
+    ANDROID_ASCII = [
+        "                 #                    #     ",
+        "                 ######################     ",
+        "               ***####################**    ",
+        "             **########################**   ",
+        "           **####    ##########    ####**   ",
+        "          ###############################   ",
+        "  ###  ###############################  ### ",
+        "  ###  ###############################  ### ",
+        "  #### ############################### #### ",
+        "  #### ############################### #### ",
+        "  #### ############################### #### ",
+        "  #### ############################### #### ",
+        "  #### ############################### #### ",
+        "  #### ############################### #### ",
+        "  #### ############################### #### ",
+        "  ###   #############################   ### ",
+        "          ###############################   ",
+        "           ##############################   ",
+        "           ##############################   ",
+        "               #########     #########      ",
+        "               #########     #########      ",
+        "                 ######        ######       ",
+    ]
+
+    IOS_ASCII = [
+        "                                    ####    ",
+        "                                   ######   ",
+        "                                  #######   ",
+        "                                  #######   ",
+        "                                #########   ",
+        "                              ############  ",
+        "                           ##############   ",
+        "                         ################   ",
+        "                #########################   ",
+        "           ##############################   ",
+        "         #############################      ",
+        "        ###########################         ",
+        "       ################################     ",
+        "    #####################################   ",
+        "   #######################################  ",
+        "   #######################################  ",
+        "  ########################################  ",
+        "  ########################################  ",
+        "    ######################################  ",
+        "     ####################################   ",
+        "         ###############################    ",
+        "            #########      ############     ",
     ]
 
     ALMA_ASCII = [
@@ -4111,6 +4172,21 @@ async def neofetch(ctx):
         1522211599744499834: ("NetBSD", NETBSD_ASCII)
     }
 
+    apple_role_mapping = {
+        1538125479222181888: ("Android", ANDROID_ASCII),
+        1538125249315479593: ("MacOS", IOS_ASCII),
+        1538125362452496425: ("iOS", IOS_ASCII),
+    }
+
+    # Merge every OS role (distro / windows / bsd / apple) into one map so the
+    # neofetch logo + OS name always reflect the HIGHEST-PRIORITY role, and up
+    # to 3 extra OSes show under "Other OS" for dual/multiboot users.
+    os_role_mapping = {}
+    os_role_mapping.update(distro_role_mapping)
+    os_role_mapping.update(win_role_mapping)
+    os_role_mapping.update(bsd_role_mapping)
+    os_role_mapping.update(apple_role_mapping)
+
     dewm_role_mapping = {
         1535969909954183239: "KDE Plasma",
         1535970090724495470: "GNOME",
@@ -4124,33 +4200,26 @@ async def neofetch(ctx):
         1535971353801396275: "Mango WM",
     }
 
-    selected_linux = None
-    selected_win = None
-    selected_bsd = None
-    selected_dewm = None
+    matched_os = []
+    for role in reversed(ctx.author.roles):  # highest role position first
+        if role.id in os_role_mapping and role.id not in [m[0] for m in matched_os]:
+            matched_os.append((role.id, os_role_mapping[role.id]))
+        if len(matched_os) >= 4:
+            break
 
-    for r_id in user_role_ids:
-        if r_id in distro_role_mapping and not selected_linux:
-            selected_linux = distro_role_mapping[r_id]
-        if r_id in win_role_mapping and not selected_win:
-            selected_win = win_role_mapping[r_id]
-        if r_id in bsd_role_mapping and not selected_bsd:
-            selected_bsd = bsd_role_mapping[r_id]
-        if r_id in dewm_role_mapping and not selected_dewm:
-            selected_dewm = dewm_role_mapping[r_id]
+    matched_dewm = []
+    for role in reversed(ctx.author.roles):
+        if role.id in dewm_role_mapping and role.id not in matched_dewm:
+            matched_dewm.append(dewm_role_mapping[role.id])
 
-    final_os = "Linux (Tux)"
-    final_ascii = TUX_ASCII
+    if matched_os:
+        final_os = matched_os[0][1][0]
+        final_ascii = matched_os[0][1][1]
+    else:
+        final_os = "Linux (Tux)"
+        final_ascii = TUX_ASCII
 
-    if selected_linux:
-        final_os = selected_linux[0]
-        final_ascii = selected_linux[1]
-    elif selected_win:
-        final_os = selected_win[0]
-        final_ascii = selected_win[1]
-    elif selected_bsd:
-        final_os = selected_bsd[0]
-        final_ascii = selected_bsd[1]
+    other_os = [entry[1][0] for entry in matched_os[1:4]]
 
     is_mod = ctx.author.guild_permissions.manage_messages or ctx.author.guild_permissions.administrator
     auth_level = "/Root" if is_mod else "/User"
@@ -4175,8 +4244,9 @@ async def neofetch(ctx):
         top_line,
         separator,
         f"OS: {final_os}",
+        f"Other OS: {', '.join(other_os)}" if other_os else "Other OS: None",
         f"Host: Linux & Beyond",
-        f"DE/WM: {selected_dewm}" if selected_dewm else "DE/WM: None",
+        f"DE/WM: {', '.join(matched_dewm)}" if matched_dewm else "DE/WM: None",
         f"Authority: {auth_level}",
         f"Uptime: {uptime_str}",
         f"Roles: {role_count}",
