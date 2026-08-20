@@ -1645,14 +1645,41 @@ BLOCKED_SAFE_NAMES = [
 # is the other stdlib way to open files, and the os.* / os.path style names
 # are dead weight since `os` itself can never be imported. getattr/setattr/
 # delattr/vars are handled via BLOCKED_SAFE_NAMES (they smuggle dunders).
-BLOCKED_SAFE_ATTRS = [
+BLOCKED_SAFE_ATTRS = {
     "system", "popen", "spawn", "run", "open", "Popen", "call",
     "check_call", "check_output", "getoutput", "getstatusoutput",
     "startfile", "execv", "execve", "execvp", "posix_spawn", "fork",
     "dlopen", "LoadLibrary", "shell", "FileIO", "environ", "getenv",
     "remove", "unlink", "rename", "mkdir", "rmdir", "chmod", "chown",
     "symlink", "link", "listdir", "scandir", "walk",
-]
+    "format", "format_map",
+    "attrgetter", "methodcaller",
+    "__class__", "__bases__", "__subclasses__", "__globals__",
+    "__builtins__", "__code__", "__import__", "__loader__",
+    "__spec__", "__file__", "__name__", "__package__", "__path__",
+    "__dict__", "__weakref__", "__doc__", "__module__",
+    "__qualname__", "__abstractmethods__", "__init_subclass__",
+    "__set_name__", "__mro__", "__reduce__", "__reduce_ex__",
+    "__getstate__", "__setstate__", "__sizeof__", "__dir__",
+    "__sizeof__", "__getattribute__", "__setattr__", "__delattr__",
+    "__hash__", "__eq__", "__ne__", "__lt__", "__le__", "__gt__",
+    "__ge__", "__repr__", "__str__", "__format__", "__bytes__",
+    "__bool__", "__call__", "__len__", "__length_hint__",
+    "__getitem__", "__setitem__", "__delitem__", "__contains__",
+    "__iter__", "__next__", "__reversed__", "__index__",
+    "__enter__", "__exit__", "__del__", "__init__", "__new__",
+    "__instancecheck__", "__subclasscheck__",
+    "__radd__", "__rsub__", "__rmul__", "__rtruediv__", "__rfloordiv__",
+    "__rand__", "__ror__", "__rxor__", "__rmatmul__", "__rmod__",
+    "__pow__", "__lshift__", "__rshift__",
+    "__matmul__", "__floordiv__", "__truediv__", "__mod__",
+    "__and__", "__or__", "__xor__", "__add__", "__sub__", "__mul__",
+    "__neg__", "__pos__", "__abs__", "__invert__",
+    "__missing__", "__class_getitem__", "__init__",
+    "__copy__", "__deepcopy__", "__sizeof__",
+    "gi_frame", "cr_frame", "ag_frame",
+    "cell_contents",
+}
 
 
 def check_code_safety(code):
@@ -1673,30 +1700,28 @@ def check_code_safety(code):
             if root_module not in ALLOWED_TERMINAL_MODULES:
                 return False, f"Security Error: Module `{node.module}` is not on the sandbox allow-list."
         if isinstance(node, ast.Attribute):
-            # CRITICAL FIX: block ALL dunder attribute access. The classic
-            # Python sandbox escape chain reaches into objects through
-            # __class__ / __bases__ / __subclasses__ / __globals__ and then
-            # runs os.system(...) or reads the bot token from os.environ.
-            # Before this check, `().__class__.__bases__[0].__subclasses__()
-            # ...` and `io.open("/etc/passwd").read()` completely bypassed
-            # the old allow-list. Legitimate sandbox code never calls dunders
-            # explicitly (x + y, x[key], len(x) don't produce Attribute
-            # nodes), so blocking them costs nothing in practice.
+            # CRITICAL FIX v2: Block ALL dangerous attribute access on ANY
+            # reference — not just inside function calls. The classic Python
+            # sandbox escape chain reaches into objects through __class__ /
+            # __bases__ / __subclasses__ / __globals__ and then runs
+            # os.system(...). Previous version only checked BLOCKED_SAFE_ATTRS
+            # inside ast.Call nodes, so `f = io.open` (just an attribute ref,
+            # not a call) bypassed the check entirely, then f(...) used an
+            # ast.Name node that never hit the attribute filter.
+            #
+            # Also blocks: attrgetter/methodcaller (getattr-equivalent in C),
+            # format/format_map (dunder-escape via str.format), and frame
+            # attributes (gi_frame/cr_frame for generator/coroutine escape).
+            if node.attr in BLOCKED_SAFE_ATTRS:
+                return False, f"Security Error: Access to `{node.attr}` is blocked in the sandbox."
+            # Catch-all: block ANY dunder attribute access (starts+ends with __).
+            # Legitimate sandbox code never needs dunders explicitly.
             if node.attr.startswith("__") and node.attr.endswith("__"):
                 return False, f"Security Error: Access to `{node.attr}` is blocked in the sandbox."
         if isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name):
                 if node.func.id in BLOCKED_SAFE_NAMES:
                     return False, f"Security Error: The function `{node.func.id}` is blocked in the sandbox."
-            elif isinstance(node.func, ast.Attribute):
-                if node.func.attr in BLOCKED_SAFE_ATTRS:
-                    return False, f"Security Error: The attribute `{node.func.attr}` is blocked."
-                # .format() is blocked because the old dunder-escape chain
-                # (`"{0.__class__.__bases__[0]}".format(...)`) hid dunder
-                # lookups from the AST walker — plain attribute access.
-                # f-strings still work fine, so this costs nothing real.
-                if node.func.attr in ("format", "format_map"):
-                    return False, "Security Error: str.format() / format_map() are blocked in the sandbox."
     return True, ""
 
 TERMINAL_TIMEOUT = 15.0
@@ -1728,6 +1753,15 @@ _BLOCKED_LEAK_MODULES = frozenset({
     "select", "tracemalloc", "pkgutil",
 })
 
+# These attributes are scrubbed from specific modules after import.
+# operator.attrgetter / operator.methodcaller are C-level getattr() wrappers
+# that bypass the AST filter entirely (the dunder name is a string argument,
+# not an Attribute node). Setting them to None forces any attempt to use them
+# to raise AttributeError inside the sandbox.
+_EXTRA_SCRUB_ATTRS = {
+    "operator": {"attrgetter", "methodcaller"},
+}
+
 # The child process bootstrap. User code and config travel through environment
 # variables (never the command line), so no quoting weirdness and nothing
 # user-controlled can hit the shell. The child re-checks the allow-list
@@ -1756,6 +1790,19 @@ except Exception:
     pass
 
 BLOCKED_ROOTS = frozenset(_os.environ["AP_SANDBOX_BLOCKED"].split(","))
+_EXTRA_SCRUB = eval(_os.environ.get("AP_SANDBOX_EXTRA_SCRUB", "{}"))
+
+# CRITICAL: Wipe os.environ immediately after reading the config vars we need.
+# This prevents user code from accessing env vars (DISCORD_TOKEN, MONGO_URI,
+# HF_TOKEN, etc.) via os.environ, os.getenv, or module-level leaks.
+_ENviron = _os.environ.copy()
+for _k in list(_ENviron.keys()):
+    if _k.startswith("AP_SANDBOX_"):
+        continue
+    _ENviron.pop(_k, None)
+_os.environ.clear()
+_os.environ.update(_ENviron)
+del _ENviron
 
 def _scrub_module(mod):
     if mod is None:
@@ -1786,12 +1833,23 @@ def _scrub_tree(mod):
             if isinstance(val, type(_sys)):
                 stack.append(val)
 
+def _scrub_extra(mod, mod_name):
+    extra = _EXTRA_SCRUB.get(mod_name)
+    if extra and mod is not None:
+        for attr_name in extra:
+            if hasattr(mod, attr_name):
+                try:
+                    setattr(mod, attr_name, None)
+                except Exception:
+                    pass
+
 def _safe_import(name, globals=None, locals=None, fromlist=(), level=0):
     root = name.split(".")[0]
     if root not in ALLOWED:
         raise ImportError(f"Module '{name}' is not on the sandbox allow-list.")
     mod = __import__(name, globals, locals, fromlist, level)
     _scrub_tree(mod)
+    _scrub_extra(mod, root)
     return mod
 
 _OUT = io.StringIO()
@@ -1902,6 +1960,7 @@ def _build_child_environment(code):
     env["AP_SANDBOX_TIMEOUT"] = repr(TERMINAL_TIMEOUT)
     env["AP_SANDBOX_MEMORY_MB"] = repr(MEMORY_LIMIT_MB)
     env["AP_SANDBOX_BLOCKED"] = ",".join(sorted(_BLOCKED_LEAK_MODULES))
+    env["AP_SANDBOX_EXTRA_SCRUB"] = repr({k: sorted(v) for k, v in _EXTRA_SCRUB_ATTRS.items()})
     return env
 
 
@@ -2114,13 +2173,17 @@ TERMINAL_HELP_TEXT = (
     "hex, oct, bin, pow, divmod, frozenset, iter, next, plus common exceptions.\n\n"
     "Blocked: open, eval, exec, compile, __import__ (raw), globals, locals,\n"
     "getattr, setattr, delattr, vars, breakpoint, str.format/format_map,\n"
-    "os.system/popen/spawn/run, io.open/codecs.open/FileIO, ALL __dunder__\n"
-    "attribute access (__class__, __subclasses__, __globals__ ...), and any\n"
-    "module not in the list above.\n\n"
+    "operator.attrgetter/methodcaller, os.system/popen/spawn/run,\n"
+    "io.open/codecs.open/FileIO, ALL __dunder__ attribute access\n"
+    "(__class__, __subclasses__, __globals__ ...), ALL frame attributes\n"
+    "(gi_frame, cr_frame, ag_frame), cell_contents, and any module\n"
+    "not in the list above.\n\n"
     "Isolation:\n"
-    "  Your code runs in a separate disposable Python process. Infinite\n"
-    "  loops, memory hogs or crashes can never take the bot down; the\n"
-    "  process is simply killed. No filesystem, no network, no env access.\n\n"
+    "  Your code runs in a separate disposable Python process with\n"
+    "  restricted builtins. Infinite loops, memory hogs or crashes can\n"
+    "  never take the bot down; the process is simply killed. No\n"
+    "  filesystem, no network, no env access (os.environ is wiped).\n"
+    "  operator.attrgetter/methodcaller are set to None at runtime.\n\n"
     "Live input() (60 seconds):\n"
     "  The bot now waits live for your reply. When your code calls input(),\n"
     "  it posts a prompt and waits up to 60 seconds for your next message.\n"
