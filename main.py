@@ -325,13 +325,27 @@ ALL_GPU_ROLES = [1521879270530486414, 1521879224951246928, 1521879315648614410]
 # ==========================================
 # Chat filter setup
 # ==========================================
+# UPDATE: "fuck", "dih" and "ass" are now COMPLETELY unbanned (owner request).
+# They were removed from both ban lists below, and FULLY_ALLOWED_WORDS makes
+# extra sure they can never trip the filter — not as standalone tokens and
+# not even squished between single letters ("f u c k", "a s s w h o r e", ...).
+# Everything else (child porn, whore, bitch, slurs, etc.) stays banned.
+FULLY_ALLOWED_WORDS = {"fuck", "fck", "dih", "ass"}
+
 STRICT_BANNED_WORDS = {
-    "nigger", "nigga", "porn", "porno", "sex", "pussy", "fuck",
+    "nigger", "nigga", "porn", "porno", "sex", "pussy",
     "bitch", "cunt", "dick", "asshole", "slut", "whore",
-    "faggot", "childporn", "rape", "pusy", "fck", "btch"
+    "faggot", "childporn", "rape", "pusy", "btch"
 }
 
-SQUISHED_SEVERE_WORDS = ["fuck", "nigger", "nigga", "porn", "pussy", "bitch", "faggot", "whore"]
+SQUISHED_SEVERE_WORDS = ["nigger", "nigga", "porn", "pussy", "bitch", "faggot", "whore"]
+
+def _strip_fully_allowed(text):
+    """Removes the fully-allowed words from a squished-letter buffer so the
+    free words can never make the buffer look like a banned word."""
+    for word in sorted(FULLY_ALLOWED_WORDS, key=len, reverse=True):
+        text = text.replace(word, "")
+    return text
 
 LEET_DICT = {'@': 'a', '4': 'a', '1': 'i', '!': 'i', '0': 'o', '3': 'e', '$': 's', '5': 's', '7': 't', '+': 't'}
 
@@ -372,28 +386,36 @@ def is_heavy_swear(text):
     clean_tokens = [t for t in clean_tokens if t]
 
     for token in clean_tokens:
+        collapsed = collapse_repeats(token)
+        # fuck / dih / ass are fully free — never flag them, skip immediately.
+        if token in FULLY_ALLOWED_WORDS or collapsed in FULLY_ALLOWED_WORDS:
+            continue
         if token in STRICT_BANNED_WORDS:
             return True
-        collapsed = collapse_repeats(token)
         if collapsed in STRICT_BANNED_WORDS:
             return True
+
+    def _buffer_hits(buf):
+        if len(buf) < 3:
+            return False
+        collapsed_buffer = collapse_repeats(buf)
+        stripped_raw = _strip_fully_allowed(buf)
+        stripped_collapsed = _strip_fully_allowed(collapsed_buffer)
+        for severe_word in SQUISHED_SEVERE_WORDS:
+            if severe_word in stripped_raw or severe_word in stripped_collapsed:
+                return True
+        return False
 
     buffer = ""
     for token in clean_tokens:
         if len(token) == 1:
             buffer += token
             continue
-        if len(buffer) >= 3:
-            collapsed_buffer = collapse_repeats(buffer)
-            for severe_word in SQUISHED_SEVERE_WORDS:
-                if severe_word in buffer or severe_word in collapsed_buffer:
-                    return True
+        if _buffer_hits(buffer):
+            return True
         buffer = ""
-    if len(buffer) >= 3:
-        collapsed_buffer = collapse_repeats(buffer)
-        for severe_word in SQUISHED_SEVERE_WORDS:
-            if severe_word in buffer or severe_word in collapsed_buffer:
-                return True
+    if _buffer_hits(buffer):
+        return True
 
     return False
 
@@ -409,6 +431,7 @@ try:
     config_collection = db["server_config"]
     warnings_collection = db["user_warnings"]
     customization_collection = db["user_customization"]
+    lal_gifs_collection = db["user_gifs"]  # ?lalall cache: user_id -> {name, gif}
 except Exception as e:
     print(f"MongoDB Initialization Error: {e}")
 
@@ -920,6 +943,108 @@ async def lal(ctx, member: discord.Member = None):
     if ctx.interaction:
         await ctx.defer()
     await _send_lal_gif(ctx.channel, member)
+
+
+# ==========================================
+# ?lalall — bulk-sync everyone's "Lets All Love" GIF into MongoDB
+# ==========================================
+# Owner-only bulk version of ?lal:
+#   - Renders the LAL gif for EVERY human member using their CURRENT server
+#     display name and stores the finished GIF bytes in the `user_gifs`
+#     collection (_id = user id, plus the name the gif was made with).
+#   - Re-running it does NOTHING for members whose saved name is unchanged
+#     (no re-render, no re-save — their stored gif just stays as-is).
+#   - Members whose display name changed get their gif re-rendered+updated;
+#     brand-new members get inserted.
+#   - Join/leave/name-change events NEVER touch this data automatically —
+#     the ONLY thing that refreshes it is running ?lalall again.
+LALALL_PROGRESS_EVERY = 10
+
+
+@bot.hybrid_command(name="lalall", description="Saves/updates every member's Lets All Love GIF in the database. (restricted)")
+async def lalall(ctx):
+    if ctx.author.id != LAL_ALLOWED_USER_ID:
+        return await ctx.send("❌ This command is reserved.", ephemeral=True)
+    if ctx.guild is None:
+        return await ctx.send("❌ This command only works inside a server.", ephemeral=True)
+    if ctx.interaction:
+        await ctx.defer()
+
+    members = [m for m in ctx.guild.members if not m.bot]
+
+    saved_names = {}
+    try:
+        async for doc in lal_gifs_collection.find({}, {"name": 1}):
+            saved_names[doc["_id"]] = doc.get("name")
+    except Exception as e:
+        print(f"LALALL db read error: {e}")
+        return await ctx.send("❌ Database error while reading the gif database.")
+
+    to_process = 0
+    added = updated = unchanged = failed = done = 0
+    for member in members:
+        current_name = getattr(member, "display_name", None) or member.name
+        if saved_names.get(member.id) == current_name:
+            unchanged += 1
+            continue
+        to_process += 1
+
+    for member in members:
+        current_name = getattr(member, "display_name", None) or member.name
+        if saved_names.get(member.id) == current_name:
+            continue
+
+        try:
+            gif_bytes = await asyncio.to_thread(_render_lal_gif, current_name)
+        except Exception as e:
+            print(f"LALALL render error ({member.id}): {e}")
+            gif_bytes = None
+        if gif_bytes is None:
+            failed += 1
+            continue
+
+        try:
+            await lal_gifs_collection.update_one(
+                {"_id": member.id},
+                {"$set": {
+                    "name": current_name,
+                    "gif": base64.b64encode(gif_bytes.getvalue()).decode("ascii"),
+                    "updated_at": time.time(),
+                }},
+                upsert=True
+            )
+        except Exception as e:
+            print(f"LALALL db save error ({member.id}): {e}")
+            failed += 1
+            continue
+
+        if member.id in saved_names:
+            updated += 1
+        else:
+            added += 1
+            saved_names[member.id] = current_name
+
+        done += 1
+        if done % LALALL_PROGRESS_EVERY == 0 and ctx.interaction:
+            try:
+                remaining = max(to_process - done, 0)
+                await ctx.edit_original_response(
+                    content=f"⏳ Syncing Lets All Love gifs... {done} saved ({remaining} left)."
+                )
+            except Exception:
+                pass
+
+    summary = f"💾 **{added}** new user gif(s) have been added to the database."
+    extras = []
+    if updated:
+        extras.append(f"✏️ {updated} member(s) had changed their name on the server — their gifs were updated.")
+    if unchanged:
+        extras.append(f"♻️ {unchanged} member(s) were already saved with the same name and were left untouched.")
+    if failed:
+        extras.append(f"⚠️ {failed} member(s) could not be processed (lainnnn.gif might be missing).")
+    if extras:
+        summary += "\n" + "\n".join(extras)
+    await ctx.send(summary)
 
 async def resume_event_countdown(channel, remaining_seconds, announcement_channel_id):
     global ACTIVE_EVENT_CHANNEL_ID
