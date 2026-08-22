@@ -907,12 +907,27 @@ def _render_lal_gif(display_name):
 
 
 async def _send_lal_gif(channel, target_user):
-    name = getattr(target_user, "display_name", None) or getattr(target_user, "name", "Lain")
+    # 1) DATABASE FIRST (?lalall keeps this collection synced): reuse the
+    #    pre-rendered gif bytes straight from MongoDB — zero Pillow work,
+    #    zero frame iteration, basically free.
+    gif_bytes = None
     try:
-        gif_bytes = await asyncio.to_thread(_render_lal_gif, name)
+        doc = await lal_gifs_collection.find_one({"_id": target_user.id}, {"gif": 1})
+        if doc and doc.get("gif"):
+            gif_bytes = io.BytesIO(base64.b64decode(doc["gif"]))
     except Exception as e:
-        print(f"LAL GIF render error: {e}")
+        print(f"LAL cache read error (falling back to live render): {e}")
         gif_bytes = None
+
+    # 2) Not in the database yet -> OLD behaviour: render it live on demand.
+    if gif_bytes is None:
+        name = getattr(target_user, "display_name", None) or getattr(target_user, "name", "Lain")
+        try:
+            gif_bytes = await asyncio.to_thread(_render_lal_gif, name)
+        except Exception as e:
+            print(f"LAL GIF render error: {e}")
+            gif_bytes = None
+
     if gif_bytes is None:
         try:
             await channel.send("⚠️ `lainnnn.gif` not found — upload it to the repo root, next to main.py.")
