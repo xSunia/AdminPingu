@@ -746,6 +746,181 @@ async def _kernel_announce(pending):
     print(f"🐧 Kernel {version} ({codename}) release announced in #{channel.name}.")
     return True
 
+# ==========================================
+# "Lets All Love" GIF easter egg
+# ==========================================
+# Only ONE Discord account is allowed to trigger this: LAL_ALLOWED_USER_ID.
+#
+# Triggers:
+#   1) Reply to someone and type "lets all love"      -> GIF shows THEIR name
+#   2) Tag someone and type "lets all love"           -> GIF shows THEIR name
+#   3) Type ?lal (optionally ?lal @user)              -> GIF shows tagged name
+#
+# The bot renders lainnnn.gif with the text baked into the RIGHT side of the
+# animation, one word per line ("Lets" / "All" / "Love" / each word of the
+# target's name), auto-sized so the block always fits the frame. The text is
+# colored with the lain palette: #693A45, #7A3C4A, #612E3A.
+#
+# lainnnn.gif must sit in the repo root, next to main.py (same folder as the
+# script), just like lainn.gif.
+LAL_ALLOWED_USER_ID = 917071733658386543
+LAIN_LAL_GIF_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lainnnn.gif")
+LAL_FONT_CANDIDATES = ["impact.ttf", "unicode.impact.ttf", "TerminusTTF-4.49.3.ttf"]
+LAL_COLORS = [(0x69, 0x3A, 0x45), (0x7A, 0x3C, 0x4A), (0x61, 0x2E, 0x3A)]
+LAL_OUTLINE_COLOR = (0x7A, 0x3C, 0x4A)
+LAL_TEXT_STROKE = (243, 233, 235)
+LAL_BAND_FILL = (16, 8, 11, 150)
+LAL_COOLDOWN_SECONDS = 4.0
+_lal_cooldown = {}
+
+_MENTION_TAG_RE = re.compile(r"<@!?(\d+)>")
+
+
+def _normalize_lal_text(content):
+    """Strips mentions/punctuation so 'lets all love' matches reliably
+    (<@123> lets all love / LET'S ALL LOVE! / Lets  All  Love all work)."""
+    text = _MENTION_TAG_RE.sub(" ", content or "")
+    text = text.lower().replace("'", "")
+    text = re.sub(r"[^a-z0-9\s]", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _render_lal_gif(display_name):
+    """Bakes 'Lets / All / Love / <name>' (one word per line, lain palette)
+    into the RIGHT half of every frame of lainnnn.gif. Returns GIF bytes."""
+    if not os.path.exists(LAIN_LAL_GIF_PATH):
+        print(f"⚠️ LAL GIF not found: {LAIN_LAL_GIF_PATH}")
+        return None
+
+    font_path = None
+    for fname in LAL_FONT_CANDIDATES:
+        candidate = get_font_path(fname)
+        if candidate:
+            font_path = candidate
+            break
+
+    lines = ["Lets", "All", "Love"]
+    name_words = [w for w in (display_name or "").split() if w]
+    lines.extend(name_words if name_words else ["Lain"])
+
+    src = Image.open(LAIN_LAL_GIF_PATH)
+    frames, durations = [], []
+    for frame in ImageSequence.Iterator(src):
+        frames.append(frame.convert("RGBA"))
+        durations.append(frame.info.get("duration", 90))
+    src.close()
+    W, H = frames[0].size
+
+    max_block_w = int(W * 0.46)
+    max_block_h = int(H * 0.80)
+    center_x = int(W * 0.73)
+    center_y = H // 2
+
+    probe = ImageDraw.Draw(Image.new("RGBA", (8, 8)))
+
+    def _load_font(sz):
+        try:
+            if font_path:
+                return ImageFont.truetype(font_path, sz)
+        except Exception:
+            pass
+        return ImageFont.load_default()
+
+    def _measure(fnt):
+        widths, heights = [], []
+        for ln in lines:
+            b = probe.textbbox((0, 0), ln, font=fnt)
+            widths.append(b[2] - b[0])
+            heights.append(b[3] - b[1])
+        gap = max(6, (heights[0] // 5) if heights else 8)
+        return max(widths), sum(heights) + gap * (len(lines) - 1), heights, gap
+
+    # Shrink the font until the whole word block fits the right side.
+    size = max(20, int(H * 0.15))
+    font = _load_font(size)
+    block_w, block_h, line_heights, gap = _measure(font)
+    while size > 14 and (block_w > max_block_w or block_h > max_block_h):
+        size = max(14, int(size * 0.92))
+        font = _load_font(size)
+        block_w, block_h, line_heights, gap = _measure(font)
+
+    stroke_w = max(2, size // 15)
+    pad_x = max(14, size // 3)
+    pad_y = max(10, size // 4)
+    band_box = [
+        center_x - block_w // 2 - pad_x,
+        center_y - block_h // 2 - pad_y,
+        center_x + block_w // 2 + pad_x,
+        center_y + block_h // 2 + pad_y,
+    ]
+    overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    od = ImageDraw.Draw(overlay)
+    od.rounded_rectangle(
+        band_box, radius=max(12, size // 2),
+        fill=LAL_BAND_FILL, outline=LAL_OUTLINE_COLOR + (255,),
+        width=max(2, size // 22),
+    )
+
+    rendered = []
+    for f in frames:
+        f = Image.alpha_composite(f, overlay)
+        draw = ImageDraw.Draw(f)
+        y = center_y - block_h // 2
+        for i, ln in enumerate(lines):
+            lh = line_heights[i]
+            draw.text(
+                (center_x, y + lh // 2), ln, font=font, anchor="mm",
+                fill=LAL_COLORS[i % len(LAL_COLORS)],
+                stroke_width=stroke_w, stroke_fill=LAL_TEXT_STROKE,
+            )
+            y += lh + gap
+        rendered.append(f)
+
+    buf = io.BytesIO()
+    rendered[0].save(buf, save_all=True, append_images=rendered[1:], format="GIF",
+                     duration=durations, loop=0)
+    buf.seek(0)
+    return buf
+
+
+async def _send_lal_gif(channel, target_user):
+    name = getattr(target_user, "display_name", None) or getattr(target_user, "name", "Lain")
+    try:
+        gif_bytes = await asyncio.to_thread(_render_lal_gif, name)
+    except Exception as e:
+        print(f"LAL GIF render error: {e}")
+        gif_bytes = None
+    if gif_bytes is None:
+        try:
+            await channel.send("⚠️ `lainnnn.gif` not found — upload it to the repo root, next to main.py.")
+        except Exception:
+            pass
+        return False
+    try:
+        await channel.send(file=discord.File(gif_bytes, filename="lets_all_love.gif"))
+        return True
+    except Exception as e:
+        print(f"LAL GIF send error: {e}")
+        return False
+
+
+@bot.hybrid_command(name="lal", description="Sends the 'Lets All Love' lain GIF. (restricted)")
+async def lal(ctx, member: discord.Member = None):
+    if ctx.author.id != LAL_ALLOWED_USER_ID:
+        return await ctx.send("❌ This command is reserved.", ephemeral=True)
+    msg = getattr(ctx, "message", None)
+    if member is None and msg is not None and msg.reference and isinstance(msg.reference.resolved, discord.Message):
+        member = msg.reference.resolved.author
+    if member is None:
+        member = ctx.author
+    now_ts = time.time()
+    if now_ts - _lal_cooldown.get(ctx.channel.id, 0) < LAL_COOLDOWN_SECONDS:
+        return await ctx.send("⏳ Slow down a little.", ephemeral=True)
+    _lal_cooldown[ctx.channel.id] = now_ts
+    if ctx.interaction:
+        await ctx.defer()
+    await _send_lal_gif(ctx.channel, member)
+
 async def resume_event_countdown(channel, remaining_seconds, announcement_channel_id):
     global ACTIVE_EVENT_CHANNEL_ID
     try:
@@ -2536,6 +2711,23 @@ async def on_message(message):
             except Exception:
                 pass
             return
+
+    # "Lets All Love" easter egg — only LAL_ALLOWED_USER_ID can trigger it.
+    # Reply to someone with "lets all love" or tag someone + "lets all love".
+    # (?lal is handled by the hybrid command itself.)
+    if message.author.id == LAL_ALLOWED_USER_ID and _normalize_lal_text(message.content) == "lets all love":
+        target = None
+        if message.mentions:
+            target = message.mentions[0]
+        elif message.reference and isinstance(message.reference.resolved, discord.Message):
+            target = message.reference.resolved.author
+        if target is None or target.id == message.author.id:
+            target = message.author
+        now_ts = time.time()
+        if now_ts - _lal_cooldown.get(message.channel.id, 0) >= LAL_COOLDOWN_SECONDS:
+            _lal_cooldown[message.channel.id] = now_ts
+            await _send_lal_gif(message.channel, target)
+        return
 
     # Media gate: everyone may post media in MEDIA_CHANNEL_IDS. In the epic
     # (level milestone) channel only Level 10+ members may post media, and
